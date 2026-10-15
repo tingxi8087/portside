@@ -28,12 +28,7 @@ pub struct Target {
     pub auth: String,
     pub private_key_path: Option<String>,
 }
-#[derive(Clone, Default, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Credentials {
-    pub password: Option<String>,
-    pub passphrase: Option<String>,
-}
+pub use crate::ssh_credentials::Credentials;
 #[derive(Clone)]
 struct Connection {
     session: Session,
@@ -202,18 +197,6 @@ fn check_fingerprint(saved: Option<&str>, actual: &str) -> Result<()> {
         None => Err("尚未信任此服务器，请先验证并确认主机指纹".into()),
     }
 }
-#[cfg(target_os = "macos")]
-fn read_credentials(id: &str) -> Result<Credentials> {
-    match security_framework::passwords::get_generic_password("Portside.SSH", id) {
-        Ok(bytes) => serde_json::from_slice(&bytes).map_err(error),
-        Err(e) if e.code() == -25300 => Ok(Credentials::default()),
-        Err(e) => Err(error(e)),
-    }
-}
-#[cfg(not(target_os = "macos"))]
-fn read_credentials(_id: &str) -> Result<Credentials> {
-    Ok(Credentials::default())
-}
 fn authenticate(session: &Session, target: &Target, credentials: &Credentials) -> Result<()> {
     match target.auth.as_str() {
         "password" => session
@@ -222,7 +205,7 @@ fn authenticate(session: &Session, target: &Target, credentials: &Credentials) -
                 credentials
                     .password
                     .as_deref()
-                    .ok_or("请输入密码，或保存到系统钥匙串")?,
+                    .ok_or("请输入密码，或将凭据保存到本机")?,
             )
             .map_err(error)?,
         "agent" => session.userauth_agent(&target.user).map_err(error)?,
@@ -245,10 +228,10 @@ fn authenticate(session: &Session, target: &Target, credentials: &Credentials) -
     }
     Ok(())
 }
-fn resolve_credentials(id: &str, credentials: Option<Credentials>) -> Result<Credentials> {
+fn resolve_credentials(path: &Path, id: &str, credentials: Option<Credentials>) -> Result<Credentials> {
     match credentials {
         Some(value) => Ok(value),
-        None => read_credentials(id),
+        None => crate::ssh_credentials::read_at(path, id),
     }
 }
 fn connection(id: &str) -> Result<Connection> {
@@ -318,50 +301,19 @@ pub async fn ssh_trust_host(
     .await
 }
 #[tauri::command]
-pub async fn ssh_save_credentials(server_id: String, credentials: Credentials) -> Result<()> {
-    blocking(move || {
-        #[cfg(target_os = "macos")]
-        {
-            security_framework::passwords::set_generic_password(
-                "Portside.SSH",
-                &server_id,
-                &serde_json::to_vec(&credentials).map_err(error)?,
-            )
-            .map_err(error)?;
-            Ok(())
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = (server_id, credentials);
-            Err("当前平台尚未接入系统钥匙串".into())
-        }
-    })
-    .await
+pub async fn ssh_save_credentials(server_id: String, credentials: Credentials, app: tauri::AppHandle) -> Result<()> {
+    blocking(move || crate::ssh_credentials::save_at(&crate::ssh_credentials::path(&app)?, server_id, credentials)).await
 }
 #[tauri::command]
-pub async fn ssh_delete_credentials(server_id: String) -> Result<()> {
-    blocking(move || {
-        #[cfg(target_os = "macos")]
-        match security_framework::passwords::delete_generic_password("Portside.SSH", &server_id) {
-            Ok(()) => Ok(()),
-            Err(e) if e.code() == -25300 => Ok(()),
-            Err(e) => Err(error(e)),
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            let _ = server_id;
-            Ok(())
-        }
-    })
-    .await
+pub async fn ssh_delete_credentials(server_id: String, app: tauri::AppHandle) -> Result<()> {
+    blocking(move || crate::ssh_credentials::delete_at(&crate::ssh_credentials::path(&app)?, &server_id)).await
 }
 #[tauri::command]
-pub async fn ssh_has_credentials(server_id: String) -> Result<bool> {
+pub async fn ssh_has_credentials(server_id: String, app: tauri::AppHandle) -> Result<bool> {
     blocking(move || {
-        let credentials = read_credentials(&server_id)?;
+        let credentials = crate::ssh_credentials::read_at(&crate::ssh_credentials::path(&app)?, &server_id)?;
         Ok(credentials.password.is_some() || credentials.passphrase.is_some())
-    })
-    .await
+    }).await
 }
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -402,9 +354,8 @@ fn finish_connection(
         sftp_available,
     })
 }
-// Keychain authorization may take minutes. Never consume the server's login grace
-// period while waiting for local authorization; host verification still pins the
-// freshly opened session immediately before authenticating it.
+// Resolve local credentials before opening the remote session. Host verification
+// still pins the freshly opened session immediately before authentication.
 fn connect_after_credentials(
     target: Target,
     resolve: impl FnOnce() -> Result<Credentials>,
@@ -426,9 +377,11 @@ pub async fn ssh_connect(
     blocking(move || {
         let id = target.id.clone();
         let pinned_target = target.clone();
+        let credentials_path = crate::ssh_credentials::path(&app)?;
+        let agent_auth = target.auth == "agent";
         connect_after_credentials(
             target,
-            move || resolve_credentials(&id, credentials),
+            move || if agent_auth { Ok(Credentials::default()) } else { resolve_credentials(&credentials_path, &id, credentials) },
             |session| verify(session, &pinned_target, &app),
             test_only,
         )
@@ -1037,7 +990,7 @@ mod tests {
         let worker = std::thread::spawn(move || {
             connect_after_credentials(
                 Target {
-                    id: "keychain-order-test".into(),
+                    id: "local-storage-order-test".into(),
                     host: "127.0.0.1".into(),
                     user: "tester".into(),
                     port,
@@ -1148,6 +1101,29 @@ mod live_tests {
         let session = handshake(target).expect("fixture TCP/SSH handshake");
         authenticate(&session, target, credentials).expect("fixture SSH authenticate");
         session
+    }
+    #[test]
+    #[ignore = "Requires isolated SSH fixture"]
+    fn saved_local_plaintext_authenticates_and_deletion_revokes_restore() {
+        let target = fixture_target();
+        let root = std::env::temp_dir().join(format!("portside-local-auth-{}", std::process::id()));
+        struct Cleanup(PathBuf);
+        impl Drop for Cleanup { fn drop(&mut self) { let _ = fs::remove_dir_all(&self.0); } }
+        let _cleanup = Cleanup(root.clone());
+        let path = root.join("ssh-credentials.json");
+        crate::ssh_credentials::save_at(&path, target.id.clone(), password()).unwrap();
+        assert!(fs::read_to_string(&path).unwrap().contains("fixture-password"));
+        let loaded = resolve_credentials(&path, &target.id, None).unwrap();
+        let session = connect_fixture(&target, &loaded);
+        let mut channel = session.channel_session().unwrap();
+        channel.exec("printf LOCAL_CREDENTIAL_RESTORED").unwrap();
+        let mut output = String::new(); channel.read_to_string(&mut output).unwrap();
+        assert_eq!(output, "LOCAL_CREDENTIAL_RESTORED");
+        channel.wait_close().unwrap();
+        crate::ssh_credentials::delete_at(&path, &target.id).unwrap();
+        let removed = resolve_credentials(&path, &target.id, None).unwrap();
+        assert!(removed.password.is_none());
+        assert!(authenticate(&handshake(&target).unwrap(), &target, &removed).is_err());
     }
     fn event_body(body: tauri::ipc::InvokeResponseBody) -> String {
         match body {
@@ -1421,27 +1397,7 @@ mod live_tests {
         ssh_disconnect(target.id).unwrap();
         println!("SSH fixture passed: password/key authentication, auth failures, UTF8 PTY, resize/CtrlC/exit, SFTP mutations, byte-perfect upload/download, overwrite refusal, transfer cancellation and cleanup");
     }
-    #[test]
-    #[ignore = "Requires macOS user keychain; writes and removes one unique Portside test entry"]
-    fn keychain_round_trip() {
-        let id = format!("portside-selftest-{}", std::process::id());
-        use tauri::async_runtime::block_on as run;
-        run(ssh_save_credentials(
-            id.clone(),
-            Credentials {
-                password: Some("ephemeral-test-secret".into()),
-                passphrase: None,
-            },
-        ))
-        .unwrap();
-        assert!(run(ssh_has_credentials(id.clone())).unwrap());
-        assert_eq!(
-            read_credentials(&id).unwrap().password.as_deref(),
-            Some("ephemeral-test-secret")
-        );
-        run(ssh_delete_credentials(id.clone())).unwrap();
-        assert!(!run(ssh_has_credentials(id)).unwrap());
-    }
+
 }
 
 #[cfg(test)]

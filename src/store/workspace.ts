@@ -18,6 +18,7 @@ type Workspace = {
   renameShortcutTag: (name:string,next:string)=>void; deleteShortcutTag: (name:string)=>void;
   deleteShortcuts: (ids:string[])=>void;
   setShortcutTag: (ids:string[],tag:string|null)=>void;
+  addShortcuts: (shortcuts:Shortcut[])=>void;
   saveShortcut: (shortcut:Shortcut)=>void; deleteShortcut: (id:string)=>void;
   saveServer: (server:Server)=>void; deleteServer: (id:string)=>void;
   addSession: (session:Session)=>void; updateSession: (id:string, change:Partial<Session>)=>void;
@@ -31,6 +32,7 @@ export const useWorkspace = create<Workspace>()(persist((set)=>({
   resetDemo:()=>set({processes:[],ports:[]}),
   renameShortcutTag:(name,next)=>set(s=>({shortcutTags:s.shortcutTags.map(tag=>tag===name?next:tag),shortcuts:s.shortcuts.map(item=>({...item,tag:item.tag===name?next:item.tag}))})),
   deleteShortcutTag:(name)=>set(s=>({shortcutTags:s.shortcutTags.filter(tag=>tag!==name),shortcuts:s.shortcuts.map(item=>({...item,tag:item.tag===name?null:item.tag}))})),
+  addShortcuts:(items)=>set(s=>({shortcuts:[...items,...s.shortcuts],shortcutTags:Array.from(new Set([...s.shortcutTags,...items.flatMap(item=>item.tag?[item.tag]:[])]))})),
   saveShortcut:(shortcut)=>set(s=>{
     const item={...shortcut,tag:shortcut.tag?.trim()||null};
     return {shortcutTags:item.tag?Array.from(new Set([...s.shortcutTags,item.tag])):s.shortcutTags,shortcuts:s.shortcuts.some(c=>c.id===item.id)?s.shortcuts.map(c=>c.id===item.id?item:c):[...s.shortcuts,item]};

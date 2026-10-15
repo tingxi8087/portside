@@ -1,8 +1,8 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { writeClipboard } from '@/services/clipboard';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { App, Modal, Dropdown, Checkbox } from 'paper-ink';
-import { IconPlus, IconBolt, IconPlayerPlay, IconFolder, IconPencil, IconClipboard, IconFilePlus, IconTrash, IconTags, IconDots, IconListCheck } from 'paper-ink/icons';
+import { IconPlus, IconBolt, IconPlayerPlay, IconFolder, IconPencil, IconClipboard, IconFilePlus, IconTrash, IconTags, IconDots, IconListCheck, IconDownload, IconUpload } from 'paper-ink/icons';
 import { useWorkspace } from '@/store/workspace';
 import type { Shortcut } from '@/data/demo';
 import { Button, Input, Field, Search, Empty, IconAction } from '@/components/UI';
@@ -10,11 +10,17 @@ import TagSelect from './components/TagSelect';
 import BatchTagEditor from './components/BatchTagEditor';
 import TagManager from './components/TagManager';
 import styles from './index.module.less';
+import ImportPreview from './components/ImportPreview';
+import { parseShortcutFile, serializeShortcuts, planShortcutImport, type ShortcutEntry } from '@/utils/shortcutTransfer';
+import { readShortcutFile, writeShortcutFile } from '@/services/shortcutTransfer';
 
 const blank:Shortcut={id:'',name:'',directory:'~/appCode/Portside',command:'',tag:null};
 export default function ShortcutPanel({onRun,runDisabledReason,context,defaultDirectory='~/appCode/Portside',embedded=false,directoryPicker=true}:{directoryPicker?:boolean;onRun?:(shortcut:Shortcut)=>void;runDisabledReason?:string;context?:string;defaultDirectory?:string;embedded?:boolean}) {
-  const {shortcuts,shortcutTags,saveShortcut,deleteShortcut,deleteShortcuts,setShortcutTag}=useWorkspace();
+  const {shortcuts,shortcutTags,addShortcuts,saveShortcut,deleteShortcut,deleteShortcuts,setShortcutTag}=useWorkspace();
   const [draft,setDraft]=useState<Shortcut>();
+  const [transferBusy,setTransferBusy]=useState(false);
+  const [importFile,setImportFile]=useState<{name:string;entries:ShortcutEntry[]}>();
+  const listRef=useRef<HTMLDivElement>(null);
   const [error,setError]=useState('');
   const [query,setQuery]=useState('');
   // undefined = all, null = untagged, string = a user-defined tag.
@@ -51,6 +57,28 @@ export default function ShortcutPanel({onRun,runDisabledReason,context,defaultDi
       message.success('命令已复制');
     } catch {message.error('复制失败，请手动选择命令')}
   };
+  const importFromFile=async()=>{
+    if(transferBusy)return;
+    setTransferBusy(true);
+    try{const file=await readShortcutFile();if(file)setImportFile({name:file.name,entries:parseShortcutFile(file.content)})}
+    catch(error){message.error(error instanceof Error?error.message:String(error))}
+    finally{setTransferBusy(false)}
+  };
+  const exportItems=async(items:Shortcut[])=>{
+    if(transferBusy||!items.length)return;
+    setTransferBusy(true);
+    try{if(await writeShortcutFile(serializeShortcuts(items)))message.success(`已导出 ${items.length} 条快捷指令`)}
+    catch(error){message.error(`导出失败：${error instanceof Error?error.message:String(error)}`)}
+    finally{setTransferBusy(false)}
+  };
+  const importItems=(entries:ShortcutEntry[])=>{
+    const plan=planShortcutImport(useWorkspace.getState().shortcuts,entries);
+    const items=plan.filter(row=>!row.duplicate).map(({item})=>({...item,id:crypto.randomUUID()}));
+    if(!items.length){message.info('所选指令均已存在');setImportFile(undefined);return}
+    addShortcuts(items);setImportFile(undefined);finishSelection();setQuery('');setFilter(undefined);
+    message.success(`已导入 ${items.length} 条快捷指令`);
+    requestAnimationFrame(()=>{listRef.current?.scrollTo({top:0});listRef.current?.querySelector<HTMLButtonElement>('.shortcut-name')?.focus()});
+  };
   const matched=shortcuts.filter(item=>(filter===undefined||filter===null&&!item.tag||typeof filter==='string'&&item.tag===filter)&&`${item.name} ${item.command} ${item.directory} ${item.tag??''}`.toLowerCase().includes(query.trim().toLowerCase()));
   return <>
       <aside className={`shortcuts-panel ${embedded?styles.embedded:''}`} aria-label="快捷指令">
@@ -60,7 +88,12 @@ export default function ShortcutPanel({onRun,runDisabledReason,context,defaultDi
             <span className={styles.count} aria-label={`${matched.length} 条指令`} title={`共 ${shortcuts.length} 条指令`}>{matched.length}</span>
             {context&&<span className={styles.context} title={context}>{context}</span>}
           </div>
-          <div className="inline-actions">{selecting?<Button type="text" size="small" onClick={finishSelection}>完成</Button>:<><IconAction label="多选快捷指令" icon={<IconListCheck size={16}/>} onClick={()=>setSelecting(true)} disabled={!shortcuts.length}/><IconAction label="新增快捷指令" icon={<IconPlus size={16}/>} onClick={()=>openEditor()}/></>}</div></header>
+          <div className="inline-actions">{selecting?<Button type="text" size="small" onClick={finishSelection}>完成</Button>:<><IconAction label="多选快捷指令" icon={<IconListCheck size={16}/>} onClick={()=>setSelecting(true)} disabled={!shortcuts.length}/><IconAction label="新增快捷指令" icon={<IconPlus size={16}/>} onClick={()=>openEditor()}/><Dropdown trigger={['click']} placement="bottomRight" menu={{items:[
+            {key:'import',label:'导入快捷指令',icon:<IconUpload size={14}/>},
+            {key:'divider',type:'divider'},
+            {key:'all',label:'导出全部',icon:<IconDownload size={14}/>,disabled:!shortcuts.length},
+            {key:'filtered',label:'导出当前筛选结果',disabled:!matched.length},
+          ],onClick:({key})=>{if(key==='import')void importFromFile();if(key==='all')void exportItems(shortcuts);if(key==='filtered')void exportItems(matched)}}}><IconAction label="快捷指令更多操作" aria-haspopup="menu" icon={<IconDots size={16}/>} loading={transferBusy} disabled={transferBusy}/></Dropdown></>}</div></header>
         <div className={styles.filters}>
           <Search value={query} onChange={changeQuery} placeholder="搜索指令、命令或路径…"/>
           <div className={styles.filterRow}>
@@ -75,10 +108,11 @@ export default function ShortcutPanel({onRun,runDisabledReason,context,defaultDi
         {selecting&&<div className={styles.batchBar}>
           <Checkbox aria-label="全选当前结果" disabled={!matched.length} checked={!!matched.length&&selectedIds.length===matched.length} indeterminate={!!selectedIds.length&&selectedIds.length<matched.length} onChange={event=>setSelectedIds(event.target.checked?matched.map(item=>item.id):[])}>全选</Checkbox>
           <span className={styles.selectionCount}>已选 {selectedIds.length}</span>
+          <IconAction label="导出所选" icon={<IconDownload size={15}/>} loading={transferBusy} disabled={transferBusy||!selectedIds.length} onClick={()=>void exportItems(matched.filter(item=>selectedIds.includes(item.id)))}/>
           <IconAction label="批量修改标签" icon={<IconTags size={15}/>} disabled={!selectedIds.length} onClick={()=>setBatchTags(true)}/>
           <IconAction label="批量删除" icon={<IconTrash size={15}/>} danger disabled={!selectedIds.length} onClick={batchDelete}/>
         </div>}
-        <div className="shortcut-list">{matched.map(item=><div className={`shortcut-item ${selecting&&selectedIds.includes(item.id)?styles.selectedItem:''}`} key={item.id}>
+        <div className="shortcut-list" ref={listRef}>{matched.map(item=><div className={`shortcut-item ${selecting&&selectedIds.includes(item.id)?styles.selectedItem:''}`} key={item.id}>
           <div className="shortcut-title">
             {selecting&&<Checkbox aria-label={`选择 ${item.name}`} checked={selectedIds.includes(item.id)} onChange={()=>toggleSelection(item.id)}/>}
             <Button type="text" size="small" className={`shortcut-name ${styles.name}`} title={item.name} aria-label={`${selecting?'选择指令':'编辑快捷指令'} ${item.name}`} onClick={()=>selecting?toggleSelection(item.id):openEditor(item)}>{item.name}</Button>
@@ -115,6 +149,7 @@ export default function ShortcutPanel({onRun,runDisabledReason,context,defaultDi
         {error&&<p className="form-error" role="alert">{error}</p>}
       </div>}
     </Modal>
+    {importFile&&<ImportPreview file={importFile} existing={shortcuts} onCancel={()=>setImportFile(undefined)} onImport={importItems}/>}
     {batchTags&&<BatchTagEditor count={selectedIds.length} options={shortcutTags} onCancel={()=>setBatchTags(false)} onApply={tag=>{setShortcutTag(selectedIds,tag);message.success(`已修改 ${selectedIds.length} 条指令的标签`);finishSelection()}}/>}
     {managing&&<TagManager onClose={()=>setManaging(false)} onRename={(name,next)=>{if(filter===name)setFilter(next)}} onDelete={name=>{if(filter===name)setFilter(undefined)}}/>}
   </>;

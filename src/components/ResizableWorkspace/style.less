@@ -1,0 +1,36 @@
+.resizable-workspace {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  transition: grid-template-columns 200ms cubic-bezier(.2, 0, .2, 1);
+}
+.resizable-workspace__main, .resizable-workspace__side {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.resizable-workspace__main > * { flex: 1; width: 100%; min-width: 0; min-height: 0; }
+.resizable-workspace__main > .table-area { overflow: auto; }
+.resizable-workspace__side { opacity: 1; transition: opacity 140ms ease-out; }
+.resizable-workspace__side-content { display: flex; flex-direction: column; height: 100%; min-height: 0; min-width: 240px; width: 100%; }
+.resizable-workspace__side-content > * { flex: 1; width: 100%; min-width: 0; min-height: 0; border-left: 0; }
+.resizable-workspace__side-content > .shortcuts-panel { position: static; height: 100%; padding: 0; box-shadow: none; }
+.resizable-workspace__side-content > .detail-panel { overflow-y: auto; }
+.resizable-workspace__rail { position: relative; border-left: 1px solid var(--line); background: var(--bg); z-index: 2; }
+.resizable-workspace__handle { position: absolute; inset: 0 -3px; cursor: col-resize; touch-action: none; }
+.resizable-workspace__handle:hover, .resizable-workspace__handle:focus-visible { background: var(--soft); outline: none; }
+.resizable-workspace__handle:focus-visible { box-shadow: inset 1px 0 var(--muted); }
+.resizable-workspace__toggle.pi-button { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); width: 20px; min-width: 20px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); color: var(--muted); }
+.resizable-workspace__toggle.pi-button:hover { color: var(--text); background: var(--soft); }
+.resizable-workspace.is-collapsed > .resizable-workspace__side { opacity: 0; pointer-events: none; }
+.resizable-workspace.is-collapsed .resizable-workspace__handle { cursor: default; }
+.resizable-workspace.is-resizing { transition: none; user-select: none; -webkit-user-select: none; }
+.resizable-workspace.is-resizing > .resizable-workspace__side { transition: none; }
+.resizable-workspace.is-resizing * { cursor: col-resize !important; }
+@media (prefers-reduced-motion: reduce) {
+  .resizable-workspace, .resizable-workspace__side { transition: none; }
+}

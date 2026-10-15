@@ -1,0 +1,16 @@
+:global(.shortcut-import-modal .pi-modal) { padding: 18px; }
+.filename { color: var(--muted); font-size: 11px; margin: 0 0 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.toolbar { display: flex; align-items: center; gap: 12px; padding-bottom: 9px; border-bottom: 1px solid var(--line); font-size: 11px; }
+.toolbar > span { color: var(--muted); }
+.list { max-height: min(310px, 45vh); overflow-y: auto; }
+.row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.row > :first-child { flex-shrink: 0; margin-top: 1px; }
+.details { min-width: 0; flex: 1; }
+.title { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.title strong { font-size: 12px; font-weight: 500; overflow-wrap: anywhere; }
+.title span { color: var(--muted); font-size: 10px; flex-shrink: 0; }
+.details code { display: block; font-size: 11px; line-height: 1.6; margin: 3px 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 90px; overflow-y: auto; }
+.metadata { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font-size: 10px; }
+.metadata > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.duplicate { opacity: .55; }
+.hint { color: var(--muted); font-size: 11px; margin: 10px 0 0; line-height: 1.6; }
