@@ -21,7 +21,7 @@
   --selected: #3d3b36;
 }
 .app-shell { display: flex; flex-direction: column; width: 100%; height: 100dvh; min-height: 360px; isolation: isolate; position: relative; overflow: hidden; background: var(--bg); color: var(--text); }
-.custom-background { position: absolute; inset: -35px; background-position: center; background-size: cover; z-index: -1; pointer-events: none; }
+.custom-background { position: absolute; inset: -35px; background-position: center; background-size: cover; z-index: -1; pointer-events: none; background-image: var(--workspace-image); opacity: var(--wallpaper-opacity); filter: blur(var(--wallpaper-blur)); }
 .titlebar { height: 52px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; padding: 0 14px; border-bottom: 1px solid var(--line); background: color-mix(in srgb,var(--soft) 92%,transparent); position: relative; user-select: none; }
 .window-identity { display: flex; align-items: center; gap: 17px; min-width: 160px; }
 .traffic-lights { width: 63px; display: flex; gap: 8px; pointer-events: none; }
@@ -142,6 +142,7 @@
 .pi-segmented__item { white-space: nowrap; }
 .settings-page .pi-segmented--small .pi-segmented__item { padding: 4px 10px; }
 .range-control .pi-slider { width: 155px; margin: 0; flex-shrink: 0; }
+.range-control .pi-slider__handle-host { display: flex; align-items: center; }
 .field > .pi-input-number { width: 100%; }
 .ssh-editor-modal .pi-modal { padding: 18px; }
 .ssh-editor-modal .pi-modal-title { margin-bottom: 12px; font-size: 15px; }
@@ -219,3 +220,28 @@
 .route-page[hidden] { display: none; }
 .startup-loading { height: 100%; display: grid; place-items: center; color: var(--muted); }
 .config-failure { position: fixed; z-index: 500; bottom: 8px; left: 12px; max-width: calc(100% - 24px); padding: 8px 12px; border: 1px solid var(--danger); background: var(--bg); color: var(--danger); font-size: 11px; }
+
+// Wallpaper changes surfaces only; foreground text and portal dialogs stay opaque.
+.app-shell.has-background {
+  > .titlebar { background: color-mix(in srgb, var(--soft) 55%, transparent); }
+  > .workspace { background: color-mix(in srgb, var(--bg) 35%, transparent); }
+  .toolbar { background: color-mix(in srgb, var(--bg) 20%, transparent); }
+  .table-area .pi-table td { background: color-mix(in srgb, var(--bg) 12%, transparent); }
+  .table-area .pi-table tbody tr:nth-child(even) td { background: color-mix(in srgb, var(--soft) 24%, transparent); }
+  .table-area .pi-table th { background: color-mix(in srgb, var(--soft) 70%, transparent); }
+  .table-area .pi-table tbody tr:hover td { background: color-mix(in srgb, var(--hover) 80%, transparent); }
+  .table-area .pi-table tbody tr.selected-row td,
+  .table-area .pi-table tbody tr.selected-row:hover td { background: var(--selected); }
+  .detail-panel { background: color-mix(in srgb, var(--elevated) 30%, transparent); }
+  .shortcuts-panel, .ssh-sidebar, .ssh-terminal-placeholder, .file-panel,
+  .resizable-workspace__rail { background: color-mix(in srgb, var(--bg) 20%, transparent); }
+  .terminal-shell { position: relative; isolation: isolate; clip-path: inset(0); }
+  .terminal-shell::before {
+    content: ''; position: fixed; inset: -35px; z-index: -1; pointer-events: none;
+    background-image: var(--workspace-image); background-size: cover; background-position: center;
+    opacity: min(var(--wallpaper-opacity), .25); filter: blur(var(--wallpaper-blur));
+  }
+  .terminal-tab.active, .terminal-footer { background: transparent; }
+  .terminal-emulator, .terminal-emulator .xterm, .terminal-emulator .xterm-screen,
+  .terminal-emulator .xterm-viewport { background: transparent; }
+}

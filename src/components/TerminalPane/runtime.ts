@@ -9,7 +9,7 @@ type Runtime={terminal:Terminal;fit:FitAddon;search:SearchAddon;node:HTMLDivElem
 const runtimes=new Map<string,Runtime>();
 export function getRuntime(session:Session,transport:TerminalTransport):Runtime{
   const existing=runtimes.get(session.id);if(existing)return existing;
-  const terminal=new Terminal({fontFamily:'Menlo, Monaco, monospace',fontSize:12,lineHeight:1.45,cursorBlink:true,scrollback:5000,allowProposedApi:false,theme:{background:'#232220',foreground:'#d6d3cb',cursor:'#d6d3cb',selectionBackground:'#77756e88'}});
+  const terminal=new Terminal({fontFamily:'Menlo, Monaco, monospace',fontSize:12,lineHeight:1.45,cursorBlink:true,scrollback:5000,allowProposedApi:false,allowTransparency:true,theme:{background:'#232220',foreground:'#d6d3cb',cursor:'#d6d3cb',selectionBackground:'#77756e88'}});
   const fit=new FitAddon(),search=new SearchAddon();terminal.loadAddon(fit);terminal.loadAddon(search);
   const node=document.createElement('div');node.className='terminal-emulator';terminal.open(node);
   const runtime:Runtime={terminal,fit,search,node,status:'connecting',detail:'正在连接…',listeners:new Set(),transport,disposed:false,start:Promise.resolve()};
