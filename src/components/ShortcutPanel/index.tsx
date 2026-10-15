@@ -1,3 +1,5 @@
+import { invoke, isTauri } from '@tauri-apps/api/core';
+import { writeClipboard } from '@/services/clipboard';
 import { useState } from 'react';
 import { App, Modal, Dropdown, Checkbox } from 'paper-ink';
 import { IconPlus, IconBolt, IconPlayerPlay, IconFolder, IconPencil, IconClipboard, IconFilePlus, IconTrash, IconTags, IconDots, IconListCheck } from 'paper-ink/icons';
@@ -10,7 +12,7 @@ import TagManager from './components/TagManager';
 import styles from './index.module.less';
 
 const blank:Shortcut={id:'',name:'',directory:'~/appCode/Portside',command:'',tag:null};
-export default function ShortcutPanel({onRun,runDisabledReason,context,defaultDirectory='~/appCode/Portside',embedded=false}:{onRun?:(shortcut:Shortcut)=>void;runDisabledReason?:string;context?:string;defaultDirectory?:string;embedded?:boolean}) {
+export default function ShortcutPanel({onRun,runDisabledReason,context,defaultDirectory='~/appCode/Portside',embedded=false,directoryPicker=true}:{directoryPicker?:boolean;onRun?:(shortcut:Shortcut)=>void;runDisabledReason?:string;context?:string;defaultDirectory?:string;embedded?:boolean}) {
   const {shortcuts,shortcutTags,saveShortcut,deleteShortcut,deleteShortcuts,setShortcutTag}=useWorkspace();
   const [draft,setDraft]=useState<Shortcut>();
   const [error,setError]=useState('');
@@ -45,23 +47,20 @@ export default function ShortcutPanel({onRun,runDisabledReason,context,defaultDi
   };
   const copyCommand=async(item:Shortcut)=>{
     try {
-      if(navigator.clipboard?.writeText)await navigator.clipboard.writeText(item.command);
-      else {
-        const textarea=document.createElement('textarea');
-        textarea.value=item.command;textarea.style.cssText='position:fixed;opacity:0;pointer-events:none';
-        const previous=document.activeElement;
-        document.body.append(textarea);
-        let copied=false;
-        try {textarea.select();copied=document.execCommand('copy')} finally {textarea.remove();if(previous instanceof HTMLElement)previous.focus()}
-        if(!copied)throw new Error('Copy unavailable');
-      }
+      await writeClipboard(item.command);
       message.success('命令已复制');
     } catch {message.error('复制失败，请手动选择命令')}
   };
   const matched=shortcuts.filter(item=>(filter===undefined||filter===null&&!item.tag||typeof filter==='string'&&item.tag===filter)&&`${item.name} ${item.command} ${item.directory} ${item.tag??''}`.toLowerCase().includes(query.trim().toLowerCase()));
   return <>
       <aside className={`shortcuts-panel ${embedded?styles.embedded:''}`} aria-label="快捷指令">
-        <header className={styles.header}><h3>{!embedded&&<><IconBolt size={16}/>快捷指令</>}<span title={`${matched.length} 条指令，共 ${shortcuts.length} 条`}>{matched.length}</span></h3>{context&&<span className={styles.context} title={context}>{context}</span>}<div className="inline-actions">{selecting?<Button type="text" size="small" onClick={finishSelection}>完成</Button>:<><IconAction label="多选快捷指令" icon={<IconListCheck size={16}/>} onClick={()=>setSelecting(true)} disabled={!shortcuts.length}/><IconAction label="新增快捷指令" icon={<IconPlus size={16}/>} onClick={()=>openEditor()}/></>}</div></header>
+        <header className={styles.header}>
+          <div className={styles.summary}>
+            {!embedded&&<h3><IconBolt size={16}/>快捷指令</h3>}
+            <span className={styles.count} aria-label={`${matched.length} 条指令`} title={`共 ${shortcuts.length} 条指令`}>{matched.length}</span>
+            {context&&<span className={styles.context} title={context}>{context}</span>}
+          </div>
+          <div className="inline-actions">{selecting?<Button type="text" size="small" onClick={finishSelection}>完成</Button>:<><IconAction label="多选快捷指令" icon={<IconListCheck size={16}/>} onClick={()=>setSelecting(true)} disabled={!shortcuts.length}/><IconAction label="新增快捷指令" icon={<IconPlus size={16}/>} onClick={()=>openEditor()}/></>}</div></header>
         <div className={styles.filters}>
           <Search value={query} onChange={changeQuery} placeholder="搜索指令、命令或路径…"/>
           <div className={styles.filterRow}>
@@ -110,8 +109,8 @@ export default function ShortcutPanel({onRun,runDisabledReason,context,defaultDi
     <Modal open={!!draft} title={isCopy?'创建快捷指令副本':draft?.id?'编辑快捷指令':'新增快捷指令'} centered width={460} rootClassName="shortcut-editor-modal" onCancel={()=>setDraft(undefined)} footer={<><Button size="small" onClick={()=>setDraft(undefined)}>取消</Button><Button size="small" onClick={()=>save()}>保存</Button><Button size="small" type="primary" disabled={!onRun||!!runDisabledReason} title={runDisabledReason} onClick={()=>save(true)}>保存并运行</Button></>}>
       {draft&&<div className={`form-stack ${styles.form}`}>
         <Field label="名称"><Input size="small" autoFocus placeholder="例如：启动前端" value={draft.name} onChange={e=>setDraft({...draft,name:e.target.value})}/></Field>
-        <Field label="工作目录"><Input size="small" prefix={<IconFolder size={15}/>} placeholder="~/appCode/your-project" value={draft.directory} onChange={e=>setDraft({...draft,directory:e.target.value})}/></Field>
-        <Field label="执行命令"><Input.TextArea rows={2} className="mono" placeholder="npm run dev" value={draft.command} onChange={e=>setDraft({...draft,command:e.target.value})}/></Field>
+        <Field label="工作目录"><Input size="small" spellCheck={false} autoCorrect="off" autoCapitalize="off" suffix={isTauri()&&directoryPicker?<IconAction label="选择工作目录" icon={<IconFolder size={14}/>} onClick={()=>void invoke<string|null>('pick_directory').then(directory=>{if(directory)setDraft({...draft,directory})}).catch(error=>message.error(String(error)))}/>:undefined} prefix={<IconFolder size={15}/>} placeholder="~/appCode/your-project" value={draft.directory} onChange={e=>setDraft({...draft,directory:e.target.value})}/></Field>
+        <Field label="执行命令"><Input.TextArea spellCheck={false} autoCorrect="off" autoCapitalize="off" rows={2} className="mono" placeholder="npm run dev" value={draft.command} onChange={e=>setDraft({...draft,command:e.target.value})}/></Field>
         <Field label="标签" hint="最多一个标签；可选择或搜索创建，留空归入未分类。"><TagSelect label="快捷指令标签" value={draft.tag} options={shortcutTags} onChange={tag=>setDraft({...draft,tag})}/></Field>
         {error&&<p className="form-error" role="alert">{error}</p>}
       </div>}

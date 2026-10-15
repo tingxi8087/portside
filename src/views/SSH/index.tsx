@@ -1,103 +1,116 @@
 import { useEffect, useRef, useState } from 'react';
-import { App, Modal, Segmented, InputNumber, Tabs } from 'paper-ink';
+import { useSearchParams } from 'react-router-dom';
+import { App, Checkbox, Modal, Segmented, InputNumber, Tabs } from 'paper-ink';
 import { IconPlus, IconServer, IconArrowUpRight, IconFolder, IconPencil, IconTrash } from 'paper-ink/icons';
 import { useWorkspace } from '@/store/workspace';
 import type { Server } from '@/data/demo';
-import TerminalPane, { createSession, previewCommand } from '@/components/TerminalPane';
+import TerminalPane, { createSession } from '@/components/TerminalPane';
 import { Button, Input, Field, Search, Empty, IconAction } from '@/components/UI';
 import ShortcutPanel from '@/components/ShortcutPanel';
+import { ssh, sshTerminalTransport, type Credentials } from '@/services/ssh';
+import { terminalError } from '@/services/terminal';
 import FilePanel from './FilePanel';
 
-const blank:Server={id:'',name:'',host:'',user:'root',port:22,auth:'key',group:'自定义'};
+const blank:Server={id:'',name:'',host:'',user:'root',port:22,auth:'key',group:'自定义',privateKeyPath:'~/.ssh/id_ed25519'};
 export default function SSH() {
-  const {servers,saveServer,deleteServer,sessions,activeSession,addSession,setActiveSession,updateSession}=useWorkspace();
+  const {servers,saveServer,deleteServer,sessions,activeSession,addSession,setActiveSession}=useWorkspace();
+  const [searchParams,setSearchParams]=useSearchParams();
   const [query,setQuery]=useState('');
   const [draft,setDraft]=useState<Server>();
   const [error,setError]=useState('');
   const [testStatus,setTestStatus]=useState<'idle'|'testing'|'success'>('idle');
+  const [testSftpAvailable,setTestSftpAvailable]=useState(false);
   const testRequest=useRef(0);
   const [connecting,setConnecting]=useState('');
+  const [saving,setSaving]=useState(false);
   const [secret,setSecret]=useState('');
+  const [remember,setRemember]=useState(false);
+  const [hasSaved,setHasSaved]=useState(false);
+  const temporaryCredentials=useRef(new Map<string,Credentials>());
   const [sideTab,setSideTab]=useState<'connections'|'files'|'shortcuts'>('connections');
   const remoteSessions=sessions.filter(session=>session.serverId);
   const active=remoteSessions.find(session=>session.id===activeSession)??remoteSessions[0];
-  const [knownServerIds,setKnownServerIds]=useState(()=>Array.from(new Set(remoteSessions.map(session=>session.serverId!))));
   const {message,modal}=App.useApp();
-  useEffect(()=>{
-    setKnownServerIds(current=>{
-      const next=Array.from(new Set([...current,...sessions.filter(session=>session.serverId).map(session=>session.serverId!)]));
-      return next.length===current.length?current:next;
-    });
-  },[sessions]);
+  const previouslyOpenServers=useRef(new Set<string>());
+  useEffect(()=>{const current=new Set(sessions.filter(session=>session.serverId).map(session=>session.serverId!));for(const id of previouslyOpenServers.current){if(!current.has(id))void ssh.disconnect(id).catch(e=>message.error(terminalError(e)))}previouslyOpenServers.current=current},[sessions]);
   const resetTest=()=>{testRequest.current+=1;setTestStatus('idle');setError('')};
   const closeEditor=()=>{resetTest();setDraft(undefined);setSecret('')};
-  const openEditor=(server:Server={...blank})=>{resetTest();setDraft({...server});setSecret('')};
+  const openEditor=async(server:Server={...blank})=>{resetTest();setDraft({...server});setSecret('');setHasSaved(false);setRemember(false);if(server.id){try{const exists=await ssh.hasCredentials(server.id);setHasSaved(exists);setRemember(exists)}catch(e){message.error(terminalError(e))}}};
   const updateDraft=(patch:Partial<Server>)=>{resetTest();setDraft(current=>current?{...current,...patch}:current)};
   const validTarget=(server:Server)=>!!server.host.trim()&&!!server.user.trim()&&/^[a-zA-Z0-9._:\-]+$/.test(server.host)&&Number.isInteger(server.port)&&server.port>=1&&server.port<=65535;
+  const credentials=():Credentials|undefined=>secret?(draft?.auth==='password'?{password:secret}:{passphrase:secret}):draft?.id?temporaryCredentials.current.get(draft.id):undefined;
+  const trust=async(server:Server,isCurrent=()=>true)=>{
+    const info=await ssh.hostInfo(server);
+    if(!isCurrent())throw new Error('已取消连接');
+    if(info.status==='changed'){
+      await new Promise<void>((resolve,reject)=>modal.confirm({title:'服务器身份已变化，已暂停连接',content:<div style={{fontSize:12,lineHeight:1.8}}><p>可能是服务器重装，也可能正在连接到其他服务器。请通过可信渠道核实新指纹。</p><p style={{overflowWrap:'anywhere'}}>原指纹：{info.previousFingerprint}<br/>新指纹：{info.fingerprint}</p></div>,okText:'已核实，继续确认',cancelText:'取消',onOk:()=>{modal.confirm({title:'替换已信任的主机指纹？',content:'只有已在服务器上核实新指纹时才应继续。后续连接将信任此新指纹。',okText:'替换并连接',cancelText:'取消',onOk:async()=>{try{await ssh.trust(server,info.fingerprint,info.previousFingerprint);resolve()}catch(e){reject(e);throw e}},onCancel:()=>reject(new Error('已取消连接'))})},onCancel:()=>reject(new Error('已取消连接'))}));return;
+    }
+    if(info.status==='trusted')return;
+    await new Promise<void>((resolve,reject)=>modal.confirm({title:'确认服务器身份',content:<div style={{fontSize:12,lineHeight:1.8}}><p>首次连接 {server.host}:{server.port}。请与服务器管理员核对主机指纹后信任。</p><code style={{overflowWrap:'anywhere'}}>{info.keyType}<br/>{info.fingerprint}</code></div>,okText:'信任并继续',cancelText:'取消',onOk:async()=>{try{await ssh.trust(server,info.fingerprint);resolve()}catch(e){reject(e);throw e}},onCancel:()=>reject(new Error('已取消连接'))}));
+  };
   const testConnection=async()=>{
     if(!draft||testStatus==='testing')return;
     resetTest();
     if(!validTarget(draft)){setError('请填写有效主机、用户名和 1–65535 范围内的端口');return}
     const request=++testRequest.current;
     setTestStatus('testing');
-    await new Promise(resolve=>setTimeout(resolve,700));
-    if(request!==testRequest.current)return;
-    setTestStatus('success');
+    try{await trust(draft,()=>request===testRequest.current);if(request!==testRequest.current)return;const result=await ssh.connect(draft,credentials(),true);if(request===testRequest.current){setTestSftpAvailable(result.sftpAvailable);setTestStatus('success')}}
+    catch(e){if(request===testRequest.current){setTestStatus('idle');setError(terminalError(e))}}
   };
   useEffect(()=>()=>{testRequest.current+=1},[]);
   const connect=async(server:Server)=>{
-    const existing=remoteSessions.find(session=>session.serverId===server.id);
+    const existing=remoteSessions.find(session=>session.serverId===server.id&&session.running);
     if(existing){setActiveSession(existing.id);return}
     if(connecting)return;
     setConnecting(server.id);
-    await new Promise(resolve=>setTimeout(resolve,600));
-    const session=createSession(server.name,'/home/ubuntu',undefined,server.id);
-    session.lines=[`连接目标：${server.user}@${server.host}:${server.port}`,'','Welcome to Ubuntu 24.04 LTS (演示)','','这是模拟 SSH 会话，未发起网络连接。','输入 help 查看支持的演示指令。',''];
-    addSession(session);setConnecting('');
+    try{await trust(server);const result=await ssh.connect(server,temporaryCredentials.current.get(server.id));addSession(createSession(server.name,result.home,undefined,server.id))}
+    catch(e){await openEditor(server);setError(terminalError(e))}
+    finally{setConnecting('')}
   };
-  const save=()=>{
-    if(!draft)return;
+  useEffect(()=>{const id=searchParams.get('connect');if(!id)return;const server=servers.find(s=>s.id===id);setSearchParams(params=>{params.delete('connect');return params},{replace:true});if(server)void connect(server)},[searchParams,servers]);
+  const save=async()=>{
+    if(!draft||saving)return;
     if(!draft.name.trim()||!validTarget(draft)){setError('请填写名称、有效主机、用户名和 1–65535 范围内的端口');return}
-    saveServer({...draft,id:draft.id||crypto.randomUUID()});closeEditor();message.success('连接配置已保存；演示版不保存凭据');
+    const id=draft.id||crypto.randomUUID();setSaving(true);
+    try{const value=credentials();if(remember&&value)await ssh.saveCredentials(id,value);if(!remember&&hasSaved)await ssh.deleteCredentials(id);if(value)temporaryCredentials.current.set(id,value);saveServer({...draft,id,name:draft.name.trim(),host:draft.host.trim(),user:draft.user.trim()});closeEditor();message.success(remember?'连接已保存，凭据存储在系统钥匙串':'连接已保存')}
+    catch(e){setError(terminalError(e))}finally{setSaving(false)}
   };
+  const remove=(server:Server)=>modal.confirm({title:`删除 ${server.name}？`,content:'删除此连接及其钥匙串凭据。已打开的终端会话保留。',okText:'删除',cancelText:'取消',onOk:async()=>{try{await ssh.deleteCredentials(server.id);temporaryCredentials.current.delete(server.id);deleteServer(server.id)}catch(e){message.error(terminalError(e));throw e}}});
   const matchedServers=servers.filter(server=>`${server.name} ${server.host} ${server.user}`.toLowerCase().includes(query.toLowerCase()));
   const connections=<div className="connections-view">
     <div className="connection-search"><Search value={query} onChange={setQuery} placeholder="搜索连接或主机…"/></div>
     <div className="connection-list">
       {matchedServers.map(server=>{
-        const connected=remoteSessions.some(session=>session.serverId===server.id);
+        const connected=remoteSessions.some(session=>session.serverId===server.id&&session.running);
         return <div className={`connection-item ${active?.serverId===server.id?'is-active':''}`} key={server.id}>
           <div className="connection-title"><IconServer size={16} stroke={1.5}/><strong title={server.name}>{server.name}</strong>{connected&&<span className="connection-state"><span className="status-dot"/>已连接</span>}</div>
           <div className="connection-bottom"><span className="connection-address mono" title={`${server.user}@${server.host}:${server.port}`}>{server.user}@{server.host}:{server.port}</span><div className="inline-actions">
             <IconAction label={connected?'打开会话':'连接'} aria-label={`${connected?'打开会话':'连接'} ${server.name}`} icon={<IconArrowUpRight size={15}/>} loading={connecting===server.id} disabled={!!connecting&&connecting!==server.id} onClick={()=>void connect(server)}/>
-            <IconAction label="编辑连接" aria-label={`编辑连接 ${server.name}`} icon={<IconPencil size={15}/>} onClick={()=>openEditor(server)}/>
-            <IconAction label="删除连接" aria-label={`删除连接 ${server.name}`} icon={<IconTrash size={15}/>} danger onClick={()=>modal.confirm({title:`删除 ${server.name}？`,content:'仅删除保存的连接配置，现有演示会话仍然保留。',okText:'删除',cancelText:'取消',onOk:()=>deleteServer(server.id)})}/>
+            <IconAction label="编辑连接" aria-label={`编辑连接 ${server.name}`} icon={<IconPencil size={15}/>} onClick={()=>void openEditor(server)}/>
+            <IconAction label="删除连接" aria-label={`删除连接 ${server.name}`} icon={<IconTrash size={15}/>} danger onClick={()=>remove(server)}/>
           </div></div>
         </div>;
       })}
       {!matchedServers.length&&<Empty title={servers.length?'没有匹配的连接':'还没有连接'} description={servers.length?'试试其他名称或主机。':'点击右上角加号添加服务器。'} icon={<IconServer size={25} stroke={1.3}/>}/>}
     </div>
-    <div className="side-panel-footer">{servers.length} 个连接<span>本地演示</span></div>
+    <div className="side-panel-footer">{servers.length} 个连接<span>SSH</span></div>
   </div>;
   const files=<div className="ssh-files-view">
     {!active&&<Empty title="尚未连接服务器" description="连接服务器后浏览文件。" icon={<IconFolder size={26} stroke={1.3}/>}/>}
-    {knownServerIds.map(id=>{
+    {Array.from(new Set(remoteSessions.map(session=>session.serverId!))).map(id=>{
       const serverName=servers.find(server=>server.id===id)?.name??remoteSessions.find(session=>session.serverId===id)?.name??'远程服务器';
-      return <div className="ssh-file-instance" hidden={active?.serverId!==id} key={id}><FilePanel serverId={id} serverName={serverName} onOpenTerminal={path=>addSession(createSession(`${serverName} · 文件`,path,undefined,id))}/></div>;
+      return <div className="ssh-file-instance" hidden={active?.serverId!==id} key={id}><FilePanel serverId={id} serverName={serverName} initialPath={remoteSessions.find(s=>s.serverId===id)?.directory==='~'?'.':remoteSessions.find(s=>s.serverId===id)?.directory??'.'} onOpenTerminal={path=>addSession(createSession(`${serverName} · 文件`,path,undefined,id))}/></div>;
     })}
   </div>;
+  const runShortcut=(shortcut:{name:string;command:string;directory:string})=>{if(!active)return;const quote=(value:string)=>"'"+value.replace(/'/g,"'\\''")+"'";const directory=shortcut.directory==='~'?'"$HOME"':shortcut.directory.startsWith('~/')?'"$HOME"/'+quote(shortcut.directory.slice(2)):quote(shortcut.directory);void sshTerminalTransport.write(active.id,`cd -- ${directory} && eval ${quote(shortcut.command)}\r`).catch(e=>message.error(terminalError(e)))};
   return <div className="page ssh-page">
     <div className="workbench-split">
-      {remoteSessions.length?<TerminalPane sessions={remoteSessions} activeId={activeSession}/>:<div className="ssh-terminal-placeholder"><Empty title="选择右侧连接开始" description="连接后在这里使用远程终端。" icon={<IconServer size={28} stroke={1.2}/>}/><span className="placeholder-note">演示模式 · 不会发起真实连接</span></div>}
+      {remoteSessions.length?<TerminalPane transport={sshTerminalTransport} sessions={remoteSessions} activeId={activeSession}/>:<div className="ssh-terminal-placeholder"><Empty title="选择右侧连接开始" description="连接后在这里使用远程终端。" icon={<IconServer size={28} stroke={1.2}/>}/></div>}
       <aside className="ssh-sidebar" aria-label="SSH 工具">
-        <Tabs className="ssh-sidebar-tabs" size="small" activeKey={sideTab} onChange={key=>setSideTab(key as typeof sideTab)} tabBarExtraContent={sideTab==='connections'?<IconAction label="新增连接" icon={<IconPlus size={16}/>} onClick={()=>openEditor()}/>:undefined} items={[{key:'connections',label:'连接',children:connections},{key:'files',label:'文件',children:files},{key:'shortcuts',label:'快捷指令',children:<ShortcutPanel embedded defaultDirectory={active?.directory??'~'} context={active?`运行到：${active.name}`:'未连接'} runDisabledReason={!active?'请先连接服务器':active.running?'请先停止当前任务':undefined} onRun={active?shortcut=>{
-          const result=previewCommand(shortcut.command,shortcut.directory,true);
-          updateSession(active.id,{directory:shortcut.directory,running:result.running,lines:[...active.lines,`$ ${shortcut.command}`,...result.lines,'[演示输出 · 未执行真实命令]','']});
-          message.success(`演示：已在 ${active.name} 运行「${shortcut.name}」`);
-        }:undefined}/>}]}/>
+        <Tabs className="ssh-sidebar-tabs" size="small" activeKey={sideTab} onChange={key=>setSideTab(key as typeof sideTab)} tabBarExtraContent={sideTab==='connections'?<IconAction label="新增连接" icon={<IconPlus size={16}/>} onClick={()=>void openEditor()}/>:undefined} items={[{key:'connections',label:'连接',children:connections},{key:'files',label:'文件',children:files},{key:'shortcuts',label:'快捷指令',children:<ShortcutPanel embedded directoryPicker={false} defaultDirectory={active?.directory??'~'} context={active?`运行到：${active.name}`:'未连接'} runDisabledReason={!active||!active.running?'请先连接服务器':undefined} onRun={active?runShortcut:undefined}/>}]}/>
       </aside>
     </div>
-    <Modal open={!!draft} title={draft?.id?'编辑 SSH 连接':'新增 SSH 连接'} rootClassName="ssh-editor-modal" centered width={480} okText="保存连接" cancelText="取消" okButtonProps={{size:'small'}} cancelButtonProps={{size:'small'}} onCancel={closeEditor} onOk={save} footer={<div className="ssh-editor-footer"><Button size="small" loading={testStatus==='testing'} onClick={()=>void testConnection()}>{testStatus==='testing'?'测试中…':'测试连接'}</Button><div className="ssh-editor-actions"><Button size="small" onClick={closeEditor}>取消</Button><Button size="small" type="primary" onClick={save}>保存连接</Button></div></div>}>
+    <Modal open={!!draft} title={draft?.id?'编辑 SSH 连接':'新增 SSH 连接'} rootClassName="ssh-editor-modal" centered width={480} onCancel={closeEditor} onOk={()=>void save()} footer={<div className="ssh-editor-footer"><Button size="small" loading={testStatus==='testing'} disabled={saving} onClick={()=>void testConnection()}>{testStatus==='testing'?'测试中…':'测试连接'}</Button><div className="ssh-editor-actions"><Button size="small" onClick={closeEditor}>取消</Button><Button size="small" type="primary" loading={saving} onClick={()=>void save()}>保存连接</Button></div></div>}>
       {draft&&<div className="form-stack ssh-form">
         <div className="ssh-form-row">
           <Field label="连接名称"><Input size="small" autoFocus placeholder="例如：Production" value={draft.name} onChange={e=>updateDraft({name:e.target.value})}/></Field>
@@ -107,10 +120,11 @@ export default function SSH() {
           <Field label="主机"><Input size="small" placeholder="IP 地址或域名" value={draft.host} onChange={e=>updateDraft({host:e.target.value})}/></Field>
           <Field label="端口"><InputNumber size="small" aria-label="SSH 端口" min={1} max={65535} precision={0} value={draft.port} onChange={port=>updateDraft({port:port===null?0:Number(port)})}/></Field>
         </div>
-        <div className="ssh-auth-row"><span>认证方式</span><Segmented<Server['auth']> aria-label="认证方式" block size="small" value={draft.auth} onChange={auth=>{updateDraft({auth});setSecret('')}} options={[{value:'key',label:'SSH 密钥'},{value:'password',label:'密码'}]}/></div>
-        <Field label={draft.auth==='key'?'私钥路径':'密码'} hint="预览模式：凭据不读取、不保存。"><Input size="small" type={draft.auth==='key'?'text':'password'} placeholder={draft.auth==='key'?'~/.ssh/id_ed25519':'输入密码'} value={secret} onChange={e=>{resetTest();setSecret(e.target.value)}}/></Field>
-        {testStatus==='success'&&<p role="status" className="ssh-test-result">模拟测试通过 · 未发起真实连接</p>}
-        {error&&<p role="alert" className="form-error">{error}</p>}
+        <div className="ssh-auth-row"><span>认证方式</span><Segmented<Server['auth']> aria-label="认证方式" block size="small" value={draft.auth} onChange={auth=>{updateDraft({auth});setSecret('')}} options={[{value:'key',label:'SSH 密钥'},{value:'password',label:'密码'},{value:'agent',label:'SSH Agent'}]}/></div>
+        {draft.auth==='key'&&<Field label="私钥路径"><Input size="small" placeholder="~/.ssh/id_ed25519" value={draft.privateKeyPath??''} onChange={e=>updateDraft({privateKeyPath:e.target.value})}/></Field>}
+        {draft.auth!=='agent'&&<><Field label={draft.auth==='key'?'私钥口令（可选）':'密码'} hint={hasSaved?'留空使用系统钥匙串中已保存的凭据。':undefined}><Input size="small" type="password" placeholder={draft.auth==='key'?'未加密私钥可留空':'输入密码'} value={secret} onChange={e=>{resetTest();setSecret(e.target.value)}}/></Field><Checkbox checked={remember} onChange={e=>setRemember(e.target.checked)}>保存凭据到系统钥匙串</Checkbox></>}
+        {testStatus==='success'&&<p role="status" className="ssh-test-result">{testSftpAvailable?'连接成功 · SSH 认证通过，SFTP 可用':'SSH 认证成功 · SFTP 不可用，仍可使用终端'}</p>}
+        {error&&<p role="alert" className="form-error" style={{overflowWrap:'anywhere'}}>{error}</p>}
       </div>}
     </Modal>
   </div>;

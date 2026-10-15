@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import ts from 'typescript';
+const source = await fs.readFile(new URL('../src/services/systemSnapshot.ts', import.meta.url), 'utf8');
+const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
+const { pruneExitedProcesses } = await import(`data:text/javascript;base64,${Buffer.from(compiled).toString('base64')}`);
+const frozen = { processes: [{ pid: 42, identity: '42:old' }, { pid: 7, identity: '7:other' }], ports: [{ pid: 42, port: 3000 }, { pid: 7, port: 7000 }], currentUser: 'test', warnings: [] };
+const exited = new Set(['42:old']);
+const displayed = pruneExitedProcesses(frozen, exited);
+assert.deepEqual(displayed.processes.map(p => p.pid), [7]);
+assert.deepEqual(displayed.ports.map(p => p.port), [7000]);
+assert.equal(displayed.processes.find(p => p.identity === '42:old'), undefined, 'selected details must become empty');
+assert.equal(frozen.processes.length, 2, 'frozen source must not mutate or resume refresh');
+const reused = { ...frozen, processes: [{ pid: 42, identity: '42:new' }], ports: [{ pid: 42, port: 3001 }] };
+assert.equal(pruneExitedProcesses(reused, exited), reused, 'same PID with different identity must remain visible');
+assert.equal(pruneExitedProcesses(undefined, exited), undefined);
+assert.equal(pruneExitedProcesses(frozen, new Set()), frozen);
+console.log('PASS paused snapshot explicit exit removes row, ports, and selection without refreshing; reused PID preserved');

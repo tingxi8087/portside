@@ -1,49 +1,44 @@
 import { useEffect, useRef, useState } from 'react';
-import { IconTerminal2, IconX, IconPlus, IconPlayerStop, IconEraser } from 'paper-ink/icons';
+import { IconTerminal2, IconX, IconPlus, IconPlayerStop, IconEraser, IconSearch, IconChevronUp, IconChevronDown } from 'paper-ink/icons';
 import { App, Modal } from 'paper-ink';
 import { useWorkspace } from '@/store/workspace';
 import type { Session } from '@/data/demo';
 import { Button, Input, Empty, IconAction } from '@/components/UI';
+import { disposeTerminal, localTerminalTransport, terminalError, type TerminalTransport } from '@/services/terminal';
+import { getRuntime } from './runtime';
+import '@xterm/xterm/css/xterm.css';
+import './terminal.css';
 
-export function previewCommand(command:string,directory:string,remote=false):{lines:string[];running:boolean} {
-  if(command==='help')return {lines:['演示指令：help、pwd、ls、whoami、date、git status、npm run dev、clear','任意输入均不会执行真实命令。'],running:false};
-  if(command==='pwd')return {lines:[directory.replace('~',remote?'/home/ubuntu':'/Users/tingxi')],running:false};
-  if(command==='ls'||command==='ls -la')return {lines:remote?['apps/    backups/    logs/    .profile']:['doc/    src/    src-tauri/    package.json    vite.config.ts'],running:false};
-  if(command==='whoami')return {lines:[remote?'ubuntu':'tingxi'],running:false};
-  if(command==='date')return {lines:['Thu Oct 15 11:24:00 CST 2026  [演示时间]'],running:false};
-  if(command==='git status')return {lines:['On branch main','nothing to commit, working tree clean'],running:false};
-  if(/^(npm|pnpm|yarn) (run )?(dev|start)$/.test(command))return {lines:['  VITE  ready in 248 ms','','  ➜  Local:   http://localhost:3000/','','  演示服务运行中，按 Ctrl+C 停止。'],running:true};
-  return {lines:[`演示模式未执行：${command}`,'输入 help 查看可预览的指令。'],running:false};
+export function createSession(name='zsh',directory='~',command?:string,serverId?:string):Session {
+  return {id:crypto.randomUUID(),name,directory,serverId,running:false,lines:[],initialCommand:command};
 }
-export function createSession(name='zsh',directory='~/appCode/Portside',command?:string,serverId?:string):Session {
-  const result=command?previewCommand(command,directory,!!serverId):{lines:[],running:false};
-  return {id:crypto.randomUUID(),name,directory,serverId,running:result.running,lines:command?[`${serverId?'$':'❯'} ${command}`,'',...result.lines,'','[演示输出 · 未执行真实命令]']:['Portside 演示终端 · 非真实 Shell','输入 help 查看支持的指令。','']};
+function TerminalViewport({session,transport,active,light,onStatus}:{session:Session;transport:TerminalTransport;active:boolean;light:boolean;onStatus:(status:string)=>void}){
+  const container=useRef<HTMLDivElement>(null);
+  useEffect(()=>{
+    const runtime=getRuntime(session,transport);const target=container.current!;target.appendChild(runtime.node);
+    const update=()=>{useWorkspace.getState().updateSession(session.id,{running:runtime.status==='ready'});onStatus(runtime.detail)};
+    runtime.listeners.add(update);update();
+    const resize=()=>{if(target.clientWidth&&target.clientHeight){try{runtime.fit.fit()}catch{}}};
+    const observer=new ResizeObserver(resize);observer.observe(target);resize();
+    return()=>{observer.disconnect();runtime.listeners.delete(update);runtime.node.remove()};
+  },[session.id,transport]);
+  useEffect(()=>{const runtime=getRuntime(session,transport);runtime.terminal.options.theme=light?{background:'#f6f4ee',foreground:'#393732',cursor:'#393732',selectionBackground:'#77756e66'}:{background:'#232220',foreground:'#d6d3cb',cursor:'#d6d3cb',selectionBackground:'#77756e88'};if(active){requestAnimationFrame(()=>{try{runtime.fit.fit();runtime.terminal.focus()}catch{}})}},[session.id,active,light,transport]);
+  return <div ref={container} className="terminal-viewport" hidden={!active} aria-label={`${session.name} 终端`}/>;
 }
-export default function TerminalPane({sessions,activeId,onNew}:{sessions:Session[];activeId:string;onNew?:()=>void}) {
-  const {setActiveSession,updateSession,closeSession,settings}=useWorkspace();const {modal}=App.useApp();
-  const active=sessions.find(s=>s.id===activeId)??sessions[0];const [input,setInput]=useState('');
-  const [history,setHistory]=useState<string[]>([]);const [historyIndex,setHistoryIndex]=useState(-1);
+export default function TerminalPane({sessions,activeId,onNew,transport=localTerminalTransport}:{sessions:Session[];activeId:string;onNew?:()=>void;transport?:TerminalTransport}) {
+  const {setActiveSession,updateSession,closeSession,settings}=useWorkspace();const {modal,message}=App.useApp();
+  const active=sessions.find(s=>s.id===activeId)??sessions[0];
   const [renaming,setRenaming]=useState<Session>();const [name,setName]=useState('');
-  const output=useRef<HTMLDivElement>(null);const commandInput=useRef<HTMLInputElement>(null);
-  useEffect(()=>{setInput('');setHistoryIndex(-1)},[active?.id]);
-  useEffect(()=>{if(output.current)output.current.scrollTop=output.current.scrollHeight},[active?.lines.length,active?.running]);
-  const stop=()=>{if(active)updateSession(active.id,{running:false,lines:[...active.lines,'^C','演示任务已停止。','']})};
-  const submit=()=>{
-    if(!active||active.running||!input.trim())return;
-    const command=input.trim();setInput('');setHistory(h=>[command,...h]);setHistoryIndex(-1);
-    if(command==='clear'){updateSession(active.id,{lines:[]});return}
-    const prefix=active.serverId?'$':'❯';
-    if(command==='exit'){closeSession(active.id);return}
-    const {lines,running}=previewCommand(command,active.directory,!!active.serverId);
-    updateSession(active.id,{lines:[...active.lines,`${prefix} ${command}`,...lines,''],running});
-  };
-  const close=(session:Session)=>{
-    const action=()=>closeSession(session.id);
-    if(session.running)modal.confirm({title:`关闭 ${session.name}？`,content:'此标签有演示任务运行，关闭会同时停止该任务。',okText:'停止并关闭',cancelText:'取消',onOk:action});else action();
-  };
+  const [statuses,setStatuses]=useState<Record<string,string>>({});const [searchOpen,setSearchOpen]=useState(false);const [query,setQuery]=useState('');
+  const runtime=()=>active?getRuntime(active,transport):undefined;
+  const close=(session:Session)=>modal.confirm({title:`关闭 ${session.name}？`,content:'关闭会话将结束其中运行的程序。',okText:'关闭会话',cancelText:'取消',onOk:()=>{disposeTerminal(session.id);closeSession(session.id)}});
+  const find=(next=true,value=query)=>{if(!value)return;const addon=runtime()?.search;const found=next?addon?.findNext(value):addon?.findPrevious(value);if(!found)void message.info('没有找到匹配内容')};
   return <div className={`terminal-shell ${settings.terminalTheme==='light'?'terminal-light':''}`}>
-    <div className="terminal-tabs">{sessions.map(s=><div key={s.id} className={`terminal-tab ${active?.id===s.id?'active':''}`}><Button type="text" size="small" styles={{content:{display:'contents'}}} className="tab-name" onClick={()=>setActiveSession(s.id)} onDoubleClick={()=>{setRenaming(s);setName(s.name)}} title={`${s.name} · 双击重命名`}><span className={`status-dot ${s.running?'':'paused'}`}/>{s.name}</Button><IconAction label={`关闭 ${s.name}`} onClick={()=>close(s)} icon={<IconX size={13}/>}/></div>)}{onNew&&<IconAction className="terminal-new" label="新建终端标签" onClick={onNew} icon={<IconPlus size={16}/>}/>}<div className="terminal-tab-actions">{active?.running&&<IconAction label="停止演示任务" onClick={stop} icon={<IconPlayerStop size={14}/>}/>}<IconAction label="清屏" onClick={()=>active&&updateSession(active.id,{lines:[]})} icon={<IconEraser size={15}/>}/></div></div>
-    {active?<><div className="terminal-context"><span><IconTerminal2 size={13}/>{active.serverId?'远程演示':'本地'}<span className="terminal-context-divider">/</span>{active.directory}</span><span>zsh · 演示会话</span></div><div ref={output} className="terminal-output" onClick={()=>commandInput.current?.focus()}>{active.lines.map((line,i)=><div key={i} className={line.startsWith('❯')||line.startsWith('$')?'command-line':line.includes('➜')?'terminal-success':line.startsWith('[')||line.includes('演示')?'terminal-muted':''}>{line||'\u00a0'}</div>)}<form className="terminal-prompt" onSubmit={e=>{e.preventDefault();submit()}}><span>{active.serverId?'$':'❯'}</span><input ref={commandInput} aria-label="演示终端输入" spellCheck={false} autoComplete="off" value={input} placeholder={active.running?'演示任务运行中，按 Ctrl+C 停止':''} onChange={e=>!active.running&&setInput(e.target.value)} onKeyDown={e=>{if(e.ctrlKey&&e.key==='c'){e.preventDefault();stop()}if(e.ctrlKey&&e.key==='l'){e.preventDefault();updateSession(active.id,{lines:[]})}if(e.key==='ArrowUp'){e.preventDefault();const next=Math.min(historyIndex+1,history.length-1);setHistoryIndex(next);setInput(history[next]??'')}if(e.key==='ArrowDown'){e.preventDefault();const next=Math.max(-1,historyIndex-1);setHistoryIndex(next);setInput(history[next]??'')}}}/></form></div><div className="terminal-footer"><span><span className="status-dot"/>{active.running?'演示任务运行中':'会话就绪'}<span className="terminal-context-divider">·</span>未连接真实 Shell</span><span>UTF-8</span></div></>:<Empty title="一个新的起点" description="新建终端，预览本地命令交互。">{onNew&&<Button onClick={onNew}>新建终端</Button>}</Empty>}
-    <Modal open={!!renaming} title="重命名终端" width={360} okText="保存" cancelText="取消" onCancel={()=>setRenaming(undefined)} onOk={()=>{if(name.trim()&&renaming){updateSession(renaming.id,{name:name.trim()});setRenaming(undefined)}}}><Input aria-label="终端名称" value={name} onChange={e=>setName(e.target.value)}/></Modal>
+    <div className="terminal-tabs">{sessions.map(s=><div key={s.id} className={`terminal-tab ${active?.id===s.id?'active':''}`}><Button type="text" size="small" styles={{content:{display:'contents'}}} className="tab-name" onClick={()=>setActiveSession(s.id)} onDoubleClick={()=>{setRenaming(s);setName(s.name)}} title={`${s.name} · 双击重命名`}><span className={`status-dot ${s.running?'':'paused'}`}/>{s.name}</Button><IconAction label={`关闭 ${s.name}`} onClick={()=>close(s)} icon={<IconX size={13}/>}/></div>)}{onNew&&<IconAction className="terminal-new" label="新建终端标签" onClick={onNew} icon={<IconPlus size={16}/>}/>}<div className="terminal-tab-actions"><IconAction label="搜索终端输出" disabled={!active} onClick={()=>setSearchOpen(value=>!value)} icon={<IconSearch size={14}/>}/><IconAction label="中断当前任务 Ctrl+C" disabled={!active?.running} onClick={()=>active&&void transport.write(active.id,'\x03').catch(error=>message.error(terminalError(error)))} icon={<IconPlayerStop size={14}/>}/><IconAction label="清屏" disabled={!active} onClick={()=>runtime()?.terminal.clear()} icon={<IconEraser size={15}/>}/></div></div>
+    {active?<><div className="terminal-context"><span><IconTerminal2 size={13}/>{active.serverId?'远程':'本地'}<span className="terminal-context-divider">/</span>{active.directory}</span><span>交互终端</span></div>
+      {searchOpen&&<div className="terminal-search"><Input size="small" autoFocus aria-label="搜索终端输出" placeholder="搜索输出…" value={query} onChange={event=>{setQuery(event.target.value);if(event.target.value)runtime()?.search.findNext(event.target.value)}} onKeyDown={event=>{if(event.key==='Enter')find(!event.shiftKey);if(event.key==='Escape')setSearchOpen(false)}}/><IconAction label="上一个结果" icon={<IconChevronUp size={14}/>} onClick={()=>find(false)}/><IconAction label="下一个结果" icon={<IconChevronDown size={14}/>} onClick={()=>find()}/><IconAction label="关闭搜索" icon={<IconX size={14}/>} onClick={()=>setSearchOpen(false)}/></div>}
+      <div className="terminal-viewports">{sessions.map(session=><TerminalViewport key={session.id} session={session} transport={transport} active={active.id===session.id} light={settings.terminalTheme==='light'} onStatus={status=>setStatuses(current=>current[session.id]===status?current:{...current,[session.id]:status})}/>)}</div>
+      <div className="terminal-footer"><span><span className={`status-dot ${active.running?'':'paused'}`}/>{statuses[active.id]??'正在连接…'}</span><span>UTF-8</span></div></>:<Empty title="一个新的起点" description="新建终端，使用本地 Shell。">{onNew&&<Button onClick={onNew}>新建终端</Button>}</Empty>}
+    <Modal open={!!renaming} title="重命名终端" width={360} okText="保存" cancelText="取消" onCancel={()=>setRenaming(undefined)} onOk={()=>{if(name.trim()&&renaming){updateSession(renaming.id,{name:name.trim()});setRenaming(undefined)}}}><Input aria-label="终端名称" value={name} onChange={event=>setName(event.target.value)}/></Modal>
   </div>;
 }

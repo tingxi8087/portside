@@ -2,23 +2,40 @@ import { invoke, isTauri } from '@tauri-apps/api/core';
 import type { StateStorage } from 'zustand/middleware';
 
 let readable=true;
+let lastSaved:string|undefined;
+let queued:string|undefined;
+let flushing:Promise<void>|undefined;
+export let lastConfigError='';
 export function configError(error:unknown){
-  const detail=`本机配置保存失败：${String(error)}`;
-  window.dispatchEvent(new CustomEvent('portside-config-error',{detail}));
-  return detail;
+  lastConfigError=`本机配置读写失败：${String(error)}`;
+  window.dispatchEvent(new CustomEvent('portside-config-error',{detail:lastConfigError}));
+  return lastConfigError;
 }
+export function blockConfigWrites(error:unknown){readable=false;configError(error)}
 export const workspaceStorage:StateStorage={
   async getItem(name){
     if(!isTauri())return localStorage.getItem(name);
     try {
       const saved=await invoke<string|null>('config_read');
+      lastSaved=saved??undefined;
       return saved??localStorage.getItem(name);
-    }catch(error){readable=false;configError(error);throw error}
+    }catch(error){blockConfigWrites(error);throw error}
   },
   async setItem(name,value){
-    if(!isTauri()){localStorage.setItem(name,value);return}
-    if(!readable)throw new Error('原配置读取失败，已阻止覆盖，请修复原配置后重启');
-    try {await invoke('config_write',{value})}catch(error){configError(error);throw error}
+    if(!readable)return;
+    if(!isTauri()){try{localStorage.setItem(name,value)}catch(error){configError(error)}return}
+    queued=value;
+    if(!flushing)flushing=Promise.resolve().then(async()=>{
+      try {
+        while(queued!==undefined){
+          const next=queued;queued=undefined;
+          if(next===lastSaved)continue;
+          await invoke('config_write',{value:next});lastSaved=next;
+        }
+      }catch(error){queued=undefined;configError(error)}
+      finally{flushing=undefined}
+    });
+    return flushing;
   },
   async removeItem(name){if(!isTauri())localStorage.removeItem(name)},
 };

@@ -214,3 +214,8 @@
 .ssh-editor-footer { display: flex; justify-content: space-between; gap: 12px; width: 100%; }
 .ssh-editor-actions { display: flex; gap: 8px; }
 .ssh-test-result { margin: 0; color: var(--muted); font-size: 11px; }
+
+.route-page { height: 100%; min-height: 0; }
+.route-page[hidden] { display: none; }
+.startup-loading { height: 100%; display: grid; place-items: center; color: var(--muted); }
+.config-failure { position: fixed; z-index: 500; bottom: 8px; left: 12px; max-width: calc(100% - 24px); padding: 8px 12px; border: 1px solid var(--danger); background: var(--bg); color: var(--danger); font-size: 11px; }

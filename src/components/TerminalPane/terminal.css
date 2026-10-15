@@ -1,0 +1,20 @@
+.terminal-viewports { flex:1; min-height:0; position:relative; margin:12px 10px 8px 14px; }
+.terminal-viewport { position:absolute; inset:0; overflow:hidden; }
+.terminal-viewport[hidden] { display:none; }
+.terminal-emulator { width:100%; height:100%; }
+.terminal-emulator .xterm { height:100%; }
+.terminal-search { display:flex; gap:4px; align-items:center; padding:8px 14px 0; }
+.terminal-search .pi-input-wrapper { flex:1; min-width:0; }
+.terminal-context { min-height:24px; }
+
+/* xterm's default viewport is black; rows rarely fill the last pixel exactly. */
+.terminal-emulator,
+.terminal-emulator .xterm,
+.terminal-emulator .xterm-screen,
+.terminal-emulator .xterm-viewport {
+  background-color:var(--term-bg);
+}
+.terminal-emulator .xterm .composition-view {
+  background-color:var(--term-bg);
+  color:var(--term-text);
+}

@@ -1,3 +1,4 @@
+import { writeClipboard, readClipboard } from '@/services/clipboard';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -14,17 +15,16 @@ export function getRuntime(session:Session,transport:TerminalTransport):Runtime{
   const runtime:Runtime={terminal,fit,search,node,status:'connecting',detail:'正在连接…',listeners:new Set(),transport,disposed:false,start:Promise.resolve()};
   runtimes.set(session.id,runtime);
   const update=(status:RuntimeStatus,detail:string)=>{runtime.status=status;runtime.detail=detail;runtime.listeners.forEach(listener=>listener())};
-  terminal.onData(data=>{if(runtime.status==='ready')void transport.write(session.id,data).catch(error=>update('error',terminalError(error)))});
+  terminal.onData(data=>{if(runtime.status==='ready')void transport.write(session.id,data).catch(error=>update(runtime.status,terminalError(error)))});
   terminal.onResize(({cols,rows})=>{if(runtime.status==='ready')void transport.resize(session.id,cols,rows).catch(()=>{})});
   terminal.attachCustomKeyEventHandler(event=>{
     if(event.type!=='keydown')return true;
     if((event.metaKey||event.ctrlKey&&event.shiftKey)&&event.key.toLowerCase()==='c'&&terminal.hasSelection()){
-      void navigator.clipboard.writeText(terminal.getSelection());return false;
+      void writeClipboard(terminal.getSelection());return false;
     }
     if(event.metaKey&&event.key.toLowerCase()==='v'){
-      void navigator.clipboard.readText().then(text=>terminal.paste(text)).catch(()=>{});return false;
+      void readClipboard().then(text=>terminal.paste(text)).catch(()=>{});return false;
     }
-    if(event.metaKey&&event.key.toLowerCase()==='k'){terminal.clear();return false;}
     return true;
   });
   runtime.start=transport.start(session,80,24,event=>{

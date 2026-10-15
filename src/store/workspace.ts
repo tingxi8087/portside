@@ -3,7 +3,8 @@ import { createJSONStorage, persist } from 'zustand/middleware';
 import { shortcuts, initialSession } from '@/data/demo';
 import type { Process, Port, Shortcut, Server, Session } from '@/data/demo';
 import { createRemoteFileWorkspace } from '@/data/demoFiles';
-import { workspaceStorage } from '@/services/config';
+import { disposeTerminal } from '@/services/terminal';
+import { workspaceStorage, blockConfigWrites } from '@/services/config';
 import type { RemoteFileWorkspace } from '@/data/demoFiles';
 
 type Settings = { theme: 'light' | 'dark' | 'system'; background: string; opacity: number; blur: number; terminalTheme: 'dark' | 'light'; extraColumns: boolean };
@@ -44,12 +45,13 @@ export const useWorkspace = create<Workspace>()(persist((set)=>({
   deleteServer:(id)=>set(s=>({servers:s.servers.filter(c=>c.id!==id)})),
   addSession:(session)=>set(s=>({sessions:[...s.sessions,session],activeSession:session.id})),
   updateSession:(id,change)=>set(s=>({sessions:s.sessions.map(c=>c.id===id?{...c,...change}:c)})),
-  closeSession:(id)=>set(s=>{const sessions=s.sessions.filter(c=>c.id!==id);return {sessions,activeSession:s.activeSession===id?(sessions.at(-1)?.id??''):s.activeSession}}),
+  closeSession:(id)=>{disposeTerminal(id);set(s=>{const sessions=s.sessions.filter(c=>c.id!==id);return {sessions,activeSession:s.activeSession===id?(sessions.at(-1)?.id??''):s.activeSession}})},
   setActiveSession:(activeSession)=>set({activeSession}),
   setSettings:(change)=>set(s=>({settings:{...s.settings,...change}})),
 }),{
   name:'portside-preview-v1',
   storage:createJSONStorage(()=>workspaceStorage),
+  onRehydrateStorage:()=> (_state,error)=>{if(error)blockConfigWrites(error)},
   partialize:s=>({shortcuts:s.shortcuts,shortcutTags:s.shortcutTags,servers:s.servers.map(({id,name,host,user,port,auth,group,privateKeyPath})=>({id,name,host,user,port,auth,group,privateKeyPath})),settings:s.settings}),
   merge:(persisted,current)=>{
     const saved=persisted as Partial<Workspace> | undefined;
@@ -60,6 +62,6 @@ export const useWorkspace = create<Workspace>()(persist((set)=>({
       return {id:item.id,name:item.name,directory:item.directory,command:item.command,tag};
     });
     const shortcutTags=Array.from(new Set([...(saved?.shortcutTags??current.shortcutTags),...migratedShortcuts.flatMap(item=>item.tag?[item.tag]:[])]));
-    return {...current,...saved,shortcuts:migratedShortcuts,shortcutTags,settings:{...defaultSettings,...settings}};
+    return {...current,servers:saved?.servers??current.servers,shortcuts:migratedShortcuts,shortcutTags,settings:{...defaultSettings,...settings}};
   },
 }));

@@ -11,7 +11,7 @@ export default function Settings() {
   const upload=(file?:File)=>{
     if(!file)return;
     if(!['image/png','image/jpeg','image/webp'].includes(file.type)){message.warning('请选择 PNG、JPG 或 WebP 图片');return}
-    if(file.size>2*1024*1024){message.warning('预览版请使用 2 MB 以内的图片');return}
+    if(file.size>2*1024*1024){message.warning('请使用 2 MB 以内的图片');return}
     const reader=new FileReader();reader.onload=()=>setSettings({background:String(reader.result)});reader.readAsDataURL(file);
   };
   return <div className="page settings-page">
@@ -37,7 +37,7 @@ export default function Settings() {
         <div className="setting-row"><strong>背景透明度</strong><div className="range-control"><Slider ariaLabelForHandle="背景透明度" min={0} max={60} value={settings.opacity} onChange={opacity=>setSettings({opacity})} tooltip={{formatter:value=>`${value}%`}}/><span className="mono">{settings.opacity}%</span></div></div>
         <div className="setting-row"><strong>背景模糊</strong><div className="range-control"><Slider ariaLabelForHandle="背景模糊" min={0} max={30} value={settings.blur} onChange={blur=>setSettings({blur})} tooltip={{formatter:value=>`${value}px`}}/><span className="mono">{settings.blur}px</span></div></div>
       </section>
-      <div className="settings-footer"><div><span className="brand-small">Portside</span><span>0.1.0 · 交互预览</span></div><Button size="small" type="text" icon={<IconRefresh size={14}/>} onClick={()=>modal.confirm({title:'恢复默认外观？',content:'只重置主题与背景，不影响快捷指令和连接配置。',okText:'恢复默认',cancelText:'取消',onOk:()=>setSettings(defaultSettings)})}>恢复默认</Button></div>
+      <div className="settings-footer"><div><span className="brand-small">Portside</span><span>0.1.0</span></div><Button size="small" type="text" icon={<IconRefresh size={14}/>} onClick={()=>modal.confirm({title:'恢复默认外观？',content:'只重置主题与背景，不影响快捷指令和连接配置。',okText:'恢复默认',cancelText:'取消',onOk:()=>setSettings(defaultSettings)})}>恢复默认</Button></div>
     </div>
   </div>;
 }

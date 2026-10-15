@@ -1,71 +1,54 @@
 # Portside
 
-面向 Mac 开发者的极简桌面工作台。使用 Tauri 2、React、TypeScript、Vite、Paper Ink、Zustand 和 Less。
+面向 macOS 开发者的极简桌面工作台，基于 Tauri 2、React、TypeScript、Paper Ink、Zustand 和 xterm.js。
 
-界面参考 macOS 活动监视器：顶部四个 Tab、单行工具栏、紧凑表格，设置弹窗按需打开。控件统一使用 Paper Ink，配色为纸白、墨黑与中性灰。
+顶部顺序为终端、SSH、端口、进程，默认进入终端。桌面版已接入真实系统功能；普通浏览器仅可预览界面和管理配置，无法访问本机进程、PTY 或 SSH。
 
-当前版本为静态界面与交互预览，使用假数据。不会扫描或结束真实进程、执行真实命令、建立 SSH/SFTP 连接。
+## 开发与打包
 
-## 启动
-
-```bash
+```sh
 npm install
 npm run tauri dev
 ```
 
-桌面开发需要 Rust 和 macOS Xcode Command Line Tools。前端开发服务器固定使用 `127.0.0.1:1420`。
+需要 Rust、Xcode Command Line Tools。Vite 使用 `127.0.0.1:1420`，不要重复启动开发服务器。
 
-仅预览界面：
-
-```bash
-npm run dev
-```
-
-浏览器访问 <http://127.0.0.1:1420>。不要同时启动两套开发服务器；`tauri dev` 会自动启动 Vite。
-
-## 检查与打包
-
-```bash
+```sh
 npm run build
-cargo check --manifest-path src-tauri/Cargo.toml
-npm run tauri build -- --debug --bundles app
+cargo test --manifest-path src-tauri/Cargo.toml
+node scripts/verify-config-storage.mjs
+node scripts/verify-system-snapshot.mjs
+# 可选：需要 Docker；创建隔离 Linux fixtures 并在完成后清理
+node scripts/ssh-fixture.mjs test
+npm run tauri -- build --debug --bundles app
 ```
 
-本地调试应用输出到 `src-tauri/target/debug/bundle/macos/Portside.app`。这是本机预览构建，不是签名、公证后的正式发行版。
+调试应用位于 `src-tauri/target/debug/bundle/macos/Portside.app`。当前为本机调试构建，尚未签名、公证或发布安装器。SSH 的 OpenSSL 随构建静态编译，无需目标机器安装 Homebrew OpenSSL。
 
-## 可以预览的交互
+## 已接入功能
 
-- 端口：即时搜索、范围筛选、进程详情、模拟结束、恢复演示数据。
-- 进程：搜索、我的/全部进程筛选、指标排序、扩展列、详情、模拟结束。
-- 终端：标签页、新建/关闭/双击重命名、预设指令、清屏、模拟任务停止。
-- 快捷指令：固定终端右栏，支持新增、编辑、复制、收藏、删除、保存并模拟运行。
-- SSH：左侧远程会话，固定右栏连接 / 文件 Tab；支持连接配置增删改、模拟连接与多会话。
-- 文件：演示目录浏览、新建目录、重命名、删除、模拟上传、下载明确标记的演示文本。
-- 设置：浅色/深色/跟随系统、自定义本地背景、透明度、模糊、终端配色。
-- 快速操作：点击右上角入口或按 Cmd+K，搜索页面、连接和快捷指令。
+- **终端**：真实登录 Shell、PTY、全 VT 终端交互、多标签、停止任务、复制粘贴、清屏、输出搜索、切页保留与退出清理。
+- **快捷指令**：指定目录执行、单标签筛选、复制命令、创建副本、多选删除和批量设置标签。SSH 与本地共用指令库，运行目标由当前页面决定。
+- **SSH**：密码、私钥与口令、SSH Agent，连接测试与真实远程终端；首次连接确认指纹，变化时展示新旧指纹并再次确认。
+- **文件**：SFTP 目录、输入路径、上传下载、拖放上传、进度与取消、新建目录、重命名、删除、在当前目录打开终端。同名文件覆盖须确认；目录只删除空目录。
+- **端口**：真实 TCP 监听 / UDP 绑定端口、PID 对应、搜索与筛选、详情和结束进程。结束前复核进程身份，先 TERM，未退出再确认 KILL。
+- **进程**：真实 CPU、内存、磁盘与网络采样、排序、搜索、暂停和详情。权限不足或缺少首个差分样本显示 `—`，不伪造零值。
+- **外观**：浅色、深色、跟随系统、独立终端配色、图片背景、透明度与模糊。
 
-终端支持 `help`、`pwd`、`ls`、`ls -la`、`whoami`、`date`、`git status`、`npm run dev`、`clear`、`exit` 等演示指令。Ctrl+C 停止演示任务，Ctrl+L 清屏，上下方向键浏览本次终端页面的输入历史。
+CPU 单核满载为 100%，内存为 RSS MiB，磁盘与网络为采样间隔内 KiB/s。普通用户权限不能读取所有系统进程的详细数据，端口/进程统计以实际可访问数据为准。
 
-快捷指令、普通连接配置、外观偏好存储在当前 WebView/浏览器的 localStorage 中；桌面和浏览器的存储相互独立。密码和密钥路径表单仅用于展示，不保存。会话和文件操作只在内存中模拟，重启或刷新后重新初始化。
+## 配置与凭据
 
-## 文档
+桌面版普通配置原子写入 macOS 应用配置目录 `~/Library/Application Support/com.portside.desktop/workspace.json`，权限为 `0600`；首次升级兼容旧 WebView 配置。快捷指令、连接资料和外观在重启后保留，终端进程与传输状态不跨重启恢复。
 
+密码和私钥口令仅在当前内存或用户勾选后的系统钥匙串保存，不进入普通配置。主机指纹独立保存。浏览器预览配置仍使用其独立 localStorage。已有预览版示例连接会保留，首次全新安装不生成假服务器。
+
+## 验证记录
+
+- [整体真实功能验收](doc/真实功能验收.md)
+- [系统能力自测](doc/系统能力自测.md)
+- [终端能力自测](doc/终端能力自测.md)
+- [SSH 能力自测](doc/SSH能力自测.md)
 - [产品规划](doc/产品规划.md)
 - [界面与交互设计](doc/界面与交互设计.md)
-- [静态预览说明](doc/静态预览说明.md)
-
-## 源码结构
-
-```text
-src/
-  components/       共享界面和演示终端
-  data/             演示数据与类型
-  store/            工作空间与配置状态
-  views/            端口、进程、终端、SSH、设置
-  App.tsx           主题、导航、Hash 路由与快速操作
-  global.less       界面样式与响应式规则
-src-tauri/          原生窗口、权限边界、应用图标
-doc/                规划、设计与预览说明
-```
-
-后续将真实系统能力接入 Rust，前端继续通过统一服务边界消费数据；本轮没有注册系统操作命令。
+- [历史静态预览说明](doc/静态预览说明.md)
