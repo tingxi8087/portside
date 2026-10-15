@@ -1,4 +1,6 @@
 //! SSH is deliberately separate from local shells. Host keys are verified before authentication.
+pub mod text;
+mod posix_rename;
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};

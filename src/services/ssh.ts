@@ -5,6 +5,7 @@ export type ConnectionInfo={home:string;sftpAvailable:boolean};
 export type Credentials={password?:string;passphrase?:string};
 export type HostInfo={fingerprint:string;keyType:string;status:'unknown'|'trusted'|'changed';previousFingerprint?:string};
 export type RemoteFile={name:string;folder:boolean;symlink:boolean;size:number;modified:number};
+export type RemoteTextFile={path:string;size:number;content:string|null;revision:string;reason:string|null};
 export type RemoteDirectory={path:string;files:RemoteFile[]};
 export type TransferEvent={id:string;name:string;transferred:number;total:number;status:'running'|'completed'};
 function native(){if(!isTauri())throw new Error('SSH 和文件管理需要在 Portside 桌面 App 中使用')}
@@ -16,6 +17,8 @@ export const ssh={
  deleteCredentials:(serverId:string)=>invoke<void>('ssh_delete_credentials',{serverId}),
  hasCredentials:(serverId:string)=>invoke<boolean>('ssh_has_credentials',{serverId}),
  disconnect:(serverId:string)=>invoke<void>('ssh_disconnect',{serverId}),
+ readText:(serverId:string,path:string)=>invoke<RemoteTextFile>('ssh_text_read',{serverId,path}),
+ saveText:(serverId:string,path:string,content:string,expectedRevision:string)=>invoke<RemoteTextFile>('ssh_text_save',{serverId,path,content,expectedRevision}),
  list:(serverId:string,path:string)=>invoke<RemoteDirectory>('ssh_list',{serverId,path}),
  action:(serverId:string,path:string,action:'mkdir'|'rename'|'delete',name?:string)=>invoke<void>('ssh_file_action',{serverId,path,action,name:name??null}),
  pickUpload:()=>invoke<string[]>('ssh_pick_upload'),

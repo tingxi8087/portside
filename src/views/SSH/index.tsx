@@ -11,6 +11,8 @@ import ShortcutPanel from '@/components/ShortcutPanel';
 import { ssh, sshTerminalTransport, type Credentials } from '@/services/ssh';
 import { terminalError } from '@/services/terminal';
 import FilePanel from './FilePanel';
+import RemoteEditor from './components/RemoteEditor';
+import { useRemoteEditors } from './components/RemoteEditor/useRemoteEditors';
 
 const blank:Server={id:'',name:'',host:'',user:'root',port:22,auth:'key',group:'自定义',privateKeyPath:'~/.ssh/id_ed25519'};
 export default function SSH() {
@@ -29,6 +31,7 @@ export default function SSH() {
   const [remember,setRemember]=useState(true);
   const [hasSaved,setHasSaved]=useState(false);
   const temporaryCredentials=useRef(new Map<string,Credentials>());
+  const editors=useRemoteEditors();
   const [sideTab,setSideTab]=useState<'connections'|'files'|'shortcuts'>('connections');
   const remoteSessions=sessions.filter(session=>session.serverId);
   const active=remoteSessions.find(session=>session.id===activeSession)??remoteSessions[0];
@@ -61,6 +64,7 @@ export default function SSH() {
   };
   useEffect(()=>()=>{testRequest.current+=1},[]);
   const connect=async(server:Server)=>{
+    editors.setActiveId('');
     const existing=remoteSessions.find(session=>session.serverId===server.id&&session.running);
     if(existing){setActiveSession(existing.id);return}
     if(connecting||disconnecting)return;
@@ -73,9 +77,11 @@ export default function SSH() {
     if(connecting||disconnecting)return;
     setDisconnecting(server.id);
     try{
+      if(!await editors.guardServer(server.id))return;
       const targetSessions=remoteSessions.filter(session=>session.serverId===server.id);
       await Promise.all(targetSessions.map(session=>sshTerminalTransport.close(session.id)));
       await ssh.disconnect(server.id);
+      editors.removeServer(server.id);
       previouslyOpenServers.current.delete(server.id);
       targetSessions.forEach(session=>closeSession(session.id));
     }catch(e){message.error(terminalError(e))}
@@ -113,16 +119,20 @@ export default function SSH() {
     {!active&&<Empty title="尚未连接服务器" description="连接服务器后浏览文件。" icon={<IconFolder size={26} stroke={1.3}/>}/>}
     {Array.from(new Set(remoteSessions.map(session=>session.serverId!))).map(id=>{
       const serverName=servers.find(server=>server.id===id)?.name??remoteSessions.find(session=>session.serverId===id)?.name??'远程服务器';
-      return <div className="ssh-file-instance" hidden={active?.serverId!==id} key={id}><FilePanel serverId={id} serverName={serverName} initialPath={remoteSessions.find(s=>s.serverId===id)?.directory==='~'?'.':remoteSessions.find(s=>s.serverId===id)?.directory??'.'} onOpenTerminal={path=>addSession(createSession(`${serverName} · 文件`,path,undefined,id))}/></div>;
+      return <div className="ssh-file-instance" hidden={active?.serverId!==id} key={id}><FilePanel refreshKey={editors.versions[id]??0} onOpenFile={path=>void editors.open(id,serverName,path)} serverId={id} serverName={serverName} initialPath={remoteSessions.find(s=>s.serverId===id)?.directory==='~'?'.':remoteSessions.find(s=>s.serverId===id)?.directory??'.'} onOpenTerminal={path=>{editors.setActiveId('');addSession(createSession(`${serverName} · 文件`,path,undefined,id))}}/></div>;
     })}
   </div>;
-  const runShortcut=(shortcut:{name:string;command:string;directory:string})=>{if(!active)return;const quote=(value:string)=>"'"+value.replace(/'/g,"'\\''")+"'";const directory=shortcut.directory==='~'?'"$HOME"':shortcut.directory.startsWith('~/')?'"$HOME"/'+quote(shortcut.directory.slice(2)):quote(shortcut.directory);void sshTerminalTransport.write(active.id,`cd -- ${directory} && eval ${quote(shortcut.command)}\r`).catch(e=>message.error(terminalError(e)))};
+  const runShortcut=(shortcut:{name:string;command:string;directory:string})=>{if(!active)return;editors.setActiveId('');const quote=(value:string)=>"'"+value.replace(/'/g,"'\\''")+"'";const directory=shortcut.directory==='~'?'"$HOME"':shortcut.directory.startsWith('~/')?'"$HOME"/'+quote(shortcut.directory.slice(2)):quote(shortcut.directory);void sshTerminalTransport.write(active.id,`cd -- ${directory} && eval ${quote(shortcut.command)}\r`).catch(e=>message.error(terminalError(e)))};
   return <div className="page ssh-page">
     <ResizableWorkspace className="workbench-split" label="SSH 工具" sidebar={<aside className="ssh-sidebar" aria-label="SSH 工具">
         <Tabs className="ssh-sidebar-tabs" size="small" activeKey={sideTab} onChange={key=>setSideTab(key as typeof sideTab)} tabBarExtraContent={sideTab==='connections'?<IconAction label="新增连接" icon={<IconPlus size={16}/>} onClick={()=>void openEditor()}/>:undefined} items={[{key:'connections',label:'连接',children:connections},{key:'files',label:'文件',children:files},{key:'shortcuts',label:'快捷指令',children:<ShortcutPanel embedded directoryPicker={false} defaultDirectory={active?.directory??'~'} context={active?`运行到：${active.name}`:'未连接'} runDisabledReason={!active||!active.running?'请先连接服务器':undefined} onRun={active?runShortcut:undefined}/>}]}/>
       </aside>}>
       {remoteSessions.length?<TerminalPane transport={sshTerminalTransport} sessions={remoteSessions} activeId={activeSession}/>:<div className="ssh-terminal-placeholder"><Empty title="选择右侧连接开始" description="连接后在这里使用远程终端。" icon={<IconServer size={28} stroke={1.2}/>}/></div>}
     </ResizableWorkspace>
+    {editors.documents.map(doc=><Modal key={doc.id} open={editors.activeId===doc.id} title={`${doc.path.split('/').pop()}${doc.content!==doc.baseline?' •':''}`} centered width={800} footer={null} keyboard={false} maskClosable={false} closable={!doc.saving} rootClassName="remote-file-modal" onCancel={()=>void editors.close(doc.id)}>
+      <RemoteEditor doc={doc} active={editors.activeId===doc.id} onChange={content=>editors.update(doc.id,{content})} onSave={()=>void editors.save(doc.id)} onReload={()=>void editors.reload(doc.id)} onDownload={()=>void (async()=>{try{const name=doc.path.split('/').pop()!;const local=await ssh.pickDownload(name);if(local)await ssh.transfer(doc.serverId,crypto.randomUUID(),local,doc.path,false,true,()=>{});}catch(error){message.error(terminalError(error))}})()}/>
+    </Modal>)}
+    {editors.confirmation}
     <Modal open={!!draft} title={draft?.id?'编辑 SSH 连接':'新增 SSH 连接'} rootClassName="ssh-editor-modal" centered width={480} onCancel={closeEditor} onOk={()=>void save()} footer={<div className="ssh-editor-footer"><Button size="small" loading={testStatus==='testing'} disabled={saving} onClick={()=>void testConnection()}>{testStatus==='testing'?'测试中…':'测试连接'}</Button><div className="ssh-editor-actions"><Button size="small" onClick={closeEditor}>取消</Button><Button size="small" type="primary" loading={saving} onClick={()=>void save()}>保存连接</Button></div></div>}>
       {draft&&<div className="form-stack ssh-form">
         <div className="ssh-form-row">
