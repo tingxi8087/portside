@@ -7,6 +7,7 @@ export interface TerminalTransport {
   write(id:string,data:string):Promise<void>;
   resize(id:string,cols:number,rows:number):Promise<void>;
   close(id:string):Promise<void>;
+  hasTasks?(id:string):Promise<boolean>;
   ack?(id:string,bytes:number):Promise<void>;
 }
 export const localTerminalTransport:TerminalTransport = {
@@ -18,6 +19,7 @@ export const localTerminalTransport:TerminalTransport = {
   write:(id,data)=>invoke('terminal_write',{id,data}),
   resize:(id,cols,rows)=>invoke('terminal_resize',{id,cols,rows}),
   close:(id)=>invoke('terminal_close',{id}),
+  hasTasks:(id)=>invoke<boolean>('terminal_has_tasks',{id}),
   ack:(id,bytes)=>invoke('terminal_ack',{id,bytes}),
 };
 

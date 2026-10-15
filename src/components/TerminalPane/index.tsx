@@ -31,7 +31,23 @@ export default function TerminalPane({sessions,activeId,onNew,transport=localTer
   const [renaming,setRenaming]=useState<Session>();const [name,setName]=useState('');
   const [statuses,setStatuses]=useState<Record<string,string>>({});const [searchOpen,setSearchOpen]=useState(false);const [query,setQuery]=useState('');
   const runtime=()=>active?getRuntime(active,transport):undefined;
-  const close=(session:Session)=>modal.confirm({title:`关闭 ${session.name}？`,content:'关闭会话将结束其中运行的程序。',okText:'关闭会话',cancelText:'取消',onOk:()=>{disposeTerminal(session.id);closeSession(session.id)}});
+  const closing=useRef(new Set<string>());
+  const close=async(session:Session)=>{
+    if(closing.current.has(session.id))return;
+    closing.current.add(session.id);
+    const finish=()=>{disposeTerminal(session.id);closeSession(session.id)};
+    let content='关闭会话将结束其中运行的程序。';let confirming=false;
+    try{
+      if(!session.serverId&&transport.hasTasks){
+        await getRuntime(session,transport).start;
+        try{
+          if(!await transport.hasTasks(session.id)){finish();return}
+          content='当前终端有任务正在运行，关闭会话将结束这些任务。';
+        }catch{content='无法确认当前终端的任务状态，关闭会话可能结束正在运行的任务。'}
+      }
+      confirming=true;modal.confirm({title:`关闭 ${session.name}？`,content,okText:'关闭会话',cancelText:'取消',onOk:finish,afterClose:()=>closing.current.delete(session.id)});
+    }finally{if(!confirming)closing.current.delete(session.id)}
+  };
   const find=(next=true,value=query)=>{if(!value)return;const addon=runtime()?.search;const found=next?addon?.findNext(value):addon?.findPrevious(value);if(!found)void message.info('没有找到匹配内容')};
   return <div className={`terminal-shell ${settings.terminalTheme==='light'?'terminal-light':''}`}>
     <div className="terminal-tabs">{sessions.map(s=><div key={s.id} className={`terminal-tab ${active?.id===s.id?'active':''}`}><Button type="text" size="small" styles={{content:{display:'contents'}}} className="tab-name" onClick={()=>setActiveSession(s.id)} onDoubleClick={()=>{setRenaming(s);setName(s.name)}} title={`${s.name} · 双击重命名`}><span className={`status-dot ${s.running?'':'paused'}`}/>{s.name}</Button><IconAction label={`关闭 ${s.name}`} onClick={()=>close(s)} icon={<IconX size={13}/>}/></div>)}{onNew&&<IconAction className="terminal-new" label="新建终端标签" onClick={onNew} icon={<IconPlus size={16}/>}/>}<div className="terminal-tab-actions"><IconAction label="搜索终端输出" disabled={!active} onClick={()=>setSearchOpen(value=>!value)} icon={<IconSearch size={14}/>}/><IconAction label="中断当前任务 Ctrl+C" disabled={!active?.running} onClick={()=>active&&void transport.write(active.id,'\x03').catch(error=>message.error(terminalError(error)))} icon={<IconPlayerStop size={14}/>}/><IconAction label="清屏" disabled={!active} onClick={()=>runtime()?.terminal.clear()} icon={<IconEraser size={15}/>}/></div></div>

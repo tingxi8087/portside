@@ -441,6 +441,79 @@ pub fn terminal_ack(
     wake.notify_all();
     Ok(())
 }
+// Query only when closing; never infer task state from terminal output or silence.
+#[tauri::command]
+pub fn terminal_has_tasks(state: State<'_, TerminalManager>, id: String) -> Result<bool, String> {
+    let sessions = state.sessions.lock().map_err(|error| error.to_string())?;
+    let Some(session) = sessions.get(&id).cloned() else {
+        return Ok(false);
+    };
+    drop(sessions);
+    has_tasks(&session)
+}
+fn has_tasks(session: &PtySession) -> Result<bool, String> {
+    // Keep the live child unreaped while inspecting its session ID (PID reuse).
+    let mut child = session.child.lock().map_err(|error| error.to_string())?;
+    if child
+        .try_wait()
+        .map_err(|error| error.to_string())?
+        .is_some()
+    {
+        return Ok(false);
+    }
+    if session.input_pending.load(Ordering::Acquire) > 0 {
+        return Ok(true);
+    }
+    let shell = session.shell_pid.ok_or("无法读取终端进程")?;
+    let master = session.master.lock().map_err(|error| error.to_string())?;
+    let group = master
+        .as_ref()
+        .and_then(|pty| pty.process_group_leader())
+        .ok_or("无法读取终端前台任务")?;
+    if group != shell {
+        return Ok(true);
+    }
+    drop(master);
+    #[cfg(target_os = "macos")]
+    unsafe {
+        let count = libc::proc_listallpids(std::ptr::null_mut(), 0);
+        if count <= 0 {
+            return Err("无法读取终端后台任务".into());
+        }
+        let mut pids = vec![0i32; count as usize + 256];
+        let bytes = (pids.len() * std::mem::size_of::<i32>()) as i32;
+        let count = libc::proc_listallpids(pids.as_mut_ptr().cast(), bytes);
+        if count <= 0 || count as usize >= pids.len() {
+            return Err("无法读取终端后台任务".into());
+        }
+        for pid in pids.into_iter().take(count as usize) {
+            if pid <= 1 || pid == shell || libc::getsid(pid) != shell {
+                continue;
+            }
+            let mut info: libc::proc_bsdinfo = std::mem::zeroed();
+            let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
+            let read = libc::proc_pidinfo(
+                pid,
+                libc::PROC_PIDTBSDINFO,
+                0,
+                (&mut info as *mut libc::proc_bsdinfo).cast(),
+                size,
+            );
+            // A disappearing process is harmless; unknown live processes remain conservative.
+            if read == size && info.pbi_status == libc::SZOMB {
+                continue;
+            }
+            if read != size && libc::getsid(pid) != shell {
+                continue;
+            }
+            return Ok(true);
+        }
+        Ok(false)
+    }
+    #[cfg(not(target_os = "macos"))]
+    Err("当前平台不支持检测终端后台任务".into())
+}
+
 #[tauri::command]
 pub fn terminal_close(state: State<'_, TerminalManager>, id: String) -> Result<(), String> {
     if let Some(session) = state
@@ -591,6 +664,61 @@ mod tests {
         );
         second.input("printf '\\123TILL_ALIVE\\n'\r");
         second.until("STILL_ALIVE");
+    }
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn detects_idle_foreground_background_and_exited_tasks() {
+        let terminal = Harness::open("task-detection");
+        let session = terminal.manager.get(&terminal.id).unwrap();
+        let wait = |expected| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                if has_tasks(&session) == Ok(expected) {
+                    break;
+                }
+                assert!(
+                    Instant::now() < deadline,
+                    "task state did not become {expected}"
+                );
+                thread::sleep(Duration::from_millis(20));
+            }
+        };
+        wait(false);
+        terminal.input("sleep 60\r");
+        wait(true);
+        terminal.input("\x03");
+        wait(false);
+        terminal.input("sleep 60 & printf '\\102G_READY\\n'\r");
+        terminal.until("BG_READY");
+        wait(true);
+        // A background job must count even when the shell owns the foreground group.
+        let shell = session.shell_pid.unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            let group = session
+                .master
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .process_group_leader();
+            if group == Some(shell) {
+                break;
+            }
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(has_tasks(&session).unwrap());
+        terminal.input("kill $(jobs -p); wait; printf '\\102G_DONE\\n'\r");
+        terminal.until("BG_DONE");
+        wait(false);
+        terminal.input("exit\r");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !session.exited.load(Ordering::Acquire) {
+            assert!(Instant::now() < deadline);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!has_tasks(&session).unwrap());
     }
     #[test]
     fn closing_cleans_foreground_and_background_jobs() {
