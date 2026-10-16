@@ -8,13 +8,20 @@
 
 ```sh
 npm install
-npm run tauri dev
+npm run dev
 ```
 
 需要 Rust、Xcode Command Line Tools。Vite 使用 `127.0.0.1:1420`，不要重复启动开发服务器。
 
 ```sh
 npm run build
+```
+
+`dev` 启动 Tauri 桌面应用及其前端开发服务；`build` 构建生产版桌面应用，生成 `src-tauri/target/release/bundle/macos/Portside.app` 和 `src-tauri/target/release/bundle/dmg/` 下的 DMG。如需仅启动或构建前端，使用 `npm run dev:web` / `npm run build:web`。
+
+其他检查与调试打包：
+
+```sh
 cargo test --manifest-path src-tauri/Cargo.toml
 node scripts/verify-config-storage.mjs
 node scripts/verify-system-snapshot.mjs
@@ -23,7 +30,7 @@ node scripts/ssh-fixture.mjs test
 npm run tauri -- build --debug --bundles app
 ```
 
-调试应用位于 `src-tauri/target/debug/bundle/macos/Portside.app`。当前为本机调试构建，尚未签名、公证或发布安装器。SSH 的 OpenSSL 随构建静态编译，无需目标机器安装 Homebrew OpenSSL。
+调试应用位于 `src-tauri/target/debug/bundle/macos/Portside.app`。构建产物供本机验收，尚未签名、公证或对外发布。SSH 的 OpenSSL 随构建静态编译，无需目标机器安装 Homebrew OpenSSL。
 
 ## 已接入功能
 
