@@ -3,7 +3,7 @@ import ResizableWorkspace from '@/components/ResizableWorkspace';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { App, Checkbox, Modal, Segmented, InputNumber, Tabs } from 'paper-ink';
-import { IconPlus, IconServer, IconArrowUpRight, IconPlugConnectedX, IconFolder, IconPencil, IconTrash } from 'paper-ink/icons';
+import { IconPlus, IconCopy, IconServer, IconArrowUpRight, IconPlugConnectedX, IconFolder, IconPencil, IconTrash } from 'paper-ink/icons';
 import { useWorkspace } from '@/store/workspace';
 import type { Server } from '@/data/demo';
 import TerminalPane, { createSession } from '@/components/TerminalPane';
@@ -11,6 +11,7 @@ import { Button, Input, Field, Search, Empty, IconAction } from '@/components/UI
 import ShortcutPanel from '@/components/ShortcutPanel';
 import { ssh, sshTerminalTransport, type Credentials } from '@/services/ssh';
 import { terminalError } from '@/services/terminal';
+import { writeClipboard } from '@/services/clipboard';
 import FilePanel from './FilePanel';
 import RemoteEditor from './components/RemoteEditor';
 import { useRemoteEditors } from './components/RemoteEditor/useRemoteEditors';
@@ -104,7 +105,7 @@ export default function SSH() {
       {matchedServers.map(server=>{
         const connected=remoteSessions.some(session=>session.serverId===server.id&&session.running);
         return <div className={`connection-item ${active?.serverId===server.id?'is-active':''}`} key={server.id}>
-          <div className="connection-title"><IconServer size={16} stroke={1.5}/><strong title={server.name}>{server.name}</strong>{connected&&<span className="connection-state"><span className="status-dot"/>已连接</span>}</div>
+          <div className="connection-title"><IconServer size={16} stroke={1.5}/><strong title={server.name}>{server.name}</strong><IconAction label="复制 IP" aria-label={`复制 ${server.name} 的 IP`} icon={<IconCopy size={14}/>} onClick={()=>void writeClipboard(server.host).then(()=>message.success('IP 已复制')).catch(()=>message.error('复制失败，请重试'))}/>{connected&&<span className="connection-state"><span className="status-dot"/>已连接</span>}</div>
           <div className="connection-bottom"><span className="connection-address mono" title={`${server.user}@${server.host}:${server.port}`}>{server.user}@{server.host}:{server.port}</span><div className="inline-actions">
             <IconAction label={connected?'断开连接':'连接'} aria-label={`${connected?'断开连接':'连接'} ${server.name}`} icon={connected?<IconPlugConnectedX size={15}/>:<IconArrowUpRight size={15}/>} loading={connecting===server.id||disconnecting===server.id} disabled={!!(connecting||disconnecting)} onClick={()=>void (connected?disconnect(server):connect(server))}/>
             <IconAction label="编辑连接" aria-label={`编辑连接 ${server.name}`} icon={<IconPencil size={15}/>} onClick={()=>void openEditor(server)}/>

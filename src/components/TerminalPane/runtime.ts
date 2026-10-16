@@ -1,4 +1,4 @@
-import { writeClipboard, readClipboard } from '@/services/clipboard';
+import { writeClipboard } from '@/services/clipboard';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { SearchAddon } from '@xterm/addon-search';
@@ -22,9 +22,8 @@ export function getRuntime(session:Session,transport:TerminalTransport):Runtime{
     if((event.metaKey||event.ctrlKey&&event.shiftKey)&&event.key.toLowerCase()==='c'&&terminal.hasSelection()){
       void writeClipboard(terminal.getSelection());return false;
     }
-    if(event.metaKey&&event.key.toLowerCase()==='v'){
-      void readClipboard().then(text=>terminal.paste(text)).catch(()=>{});return false;
-    }
+    // xterm owns the native paste event, including Cmd+V and menu paste.
+    // Returning false here alone does not cancel the browser's paste action.
     return true;
   });
   runtime.start=transport.start(session,80,24,event=>{
