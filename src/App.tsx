@@ -22,6 +22,18 @@ function Shell() {
   const [configFailure,setConfigFailure]=useState(lastConfigError);
   useEffect(()=>{const onError=(event:Event)=>setConfigFailure((event as CustomEvent<string>).detail);window.addEventListener('portside-config-error',onError);return()=>window.removeEventListener('portside-config-error',onError)},[]);
   useEffect(()=>{const handler=(event:KeyboardEvent)=>{if((event.metaKey||event.ctrlKey)&&event.key.toLowerCase()==='k'){event.preventDefault();setPalette(p=>!p);setQuery('')}if(event.key==='Escape'&&!(event.target instanceof Element&&event.target.closest('.terminal-output'))){const search=document.querySelector<HTMLInputElement>('.search input');if(search?.value&&document.activeElement===search){const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')?.set;setter?.call(search,'');search.dispatchEvent(new Event('input',{bubbles:true}))}}};window.addEventListener('keydown',handler);return()=>window.removeEventListener('keydown',handler)},[]);
+  useEffect(()=>{
+    const switchTab=(event:KeyboardEvent)=>{
+      if(!event.metaKey||event.ctrlKey||event.altKey||event.shiftKey||event.isComposing)return;
+      const index=['1','2','3','4'].indexOf(event.key);
+      if(index<0||Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).some(dialog=>!dialog.closest('[hidden]')))return;
+      event.preventDefault();event.stopPropagation();
+      if(!event.repeat)navigate(links[index].to);
+    };
+    // Capture before xterm handles key events so shortcuts also work in terminals.
+    window.addEventListener('keydown',switchTab,true);
+    return()=>window.removeEventListener('keydown',switchTab,true);
+  },[navigate]);
   const actions=[...links.map(item=>({key:item.to,label:item.label,detail:'打开页面',Icon:item.Icon,run:()=>navigate(item.to)})),{key:'new-terminal',label:'新建本地终端',detail:'本地终端',Icon:IconPlus,run:()=>{addSession(createSession());navigate('/terminal')}},...shortcuts.map(item=>({key:item.id,label:item.name,detail:item.command,Icon:IconBolt,run:()=>{addSession(createSession(item.name,item.directory||'~',item.command));navigate('/terminal')}})),...servers.map(server=>({key:server.id,label:`连接 ${server.name}`,detail:`${server.user}@${server.host}`,Icon:IconServer,run:()=>navigate(`/ssh?connect=${encodeURIComponent(server.id)}`)}))].filter(a=>`${a.label} ${a.detail}`.toLowerCase().includes(query.toLowerCase()));
   const isDesktop='__TAURI_INTERNALS__' in window;
   return <div className={`app-shell ${isDesktop?'is-desktop':''} ${settings.background&&settings.opacity>0?'has-background':''}`} style={{'--workspace-image':settings.background?`url("${settings.background}")`:'none','--wallpaper-opacity':settings.opacity/100,'--wallpaper-blur':`${settings.blur}px`} as CSSProperties}>{settings.background&&<div className="custom-background"/>}
@@ -30,7 +42,7 @@ function Shell() {
         <div className="traffic-lights" aria-hidden="true">{!isDesktop&&<><i/><i/><i/></>}</div>
         <span className="window-name" data-tauri-drag-region>Portside</span>
       </div>
-      <Tabs className="top-tabs" size="small" aria-label="功能" activeKey={location.pathname} onChange={navigate} items={links.map(({to,label})=>({key:to,label}))}/>
+      <Tabs className="top-tabs" size="small" aria-label="功能" activeKey={location.pathname} onChange={navigate} items={links.map(({to,label},index)=>({key:to,label:<span title={`${label} ⌘${index+1}`}>{label}</span>}))}/>
       <div className="window-tools">
         {!isDesktop&&<span className="preview-badge" title="系统功能需要在桌面应用中使用">浏览器预览</span>}
         <Button type="text" size="small" styles={{content:{display:'contents'}}} className="icon-button" aria-label="快速操作" title="快速操作 ⌘K" onClick={()=>{setPalette(true);setQuery('')}}><IconCommand size={16}/></Button>
