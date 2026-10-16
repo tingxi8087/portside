@@ -302,6 +302,17 @@ pub async fn floating_sample(app: tauri::AppHandle) -> Result<Stats, String> {
     .map_err(|e| e.to_string())?
 }
 #[tauri::command]
+pub fn floating_toggle_main(app: tauri::AppHandle) -> Result<(), String> {
+    let main = app.get_webview_window("main").ok_or("主窗口不可用")?;
+    let visible = main.is_visible().map_err(|e| e.to_string())?;
+    let minimized = main.is_minimized().map_err(|e| e.to_string())?;
+    if visible && !minimized {
+        main.hide().map_err(|e| e.to_string())
+    } else {
+        floating_open_main(app)
+    }
+}
+#[tauri::command]
 pub fn floating_open_main(app: tauri::AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     let _ = app.show();

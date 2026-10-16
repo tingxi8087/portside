@@ -15,7 +15,7 @@ export default function FloatingSettings(){
   const move=(id:FloatingMetric,delta:number)=>{const next=[...selected];const i=next.indexOf(id);[next[i],next[i+delta]]=[next[i+delta],next[i]];setSettings({floatingMetrics:next})};
   const ordered=[...selected,...floatingMetrics.map(item=>item.id).filter(id=>!selected.includes(id))];
   return <section className="settings-section"><div className="floating-settings-header"><h2>悬浮球</h2><Checkbox disabled={!isTauri()} title={isTauri()?undefined:"仅桌面 App 支持"} checked={settings.floatingEnabled} onChange={event=>setSettings({floatingEnabled:event.target.checked})}>显示悬浮球</Checkbox></div>
-    <div className="floating-settings-preview"><FloatingBadge metrics={selected} stats={preview}/><p>示例预览 · 已选 {selected.length}/3<br/>单击打开界面，拖动调整位置</p></div>
+    <div className="floating-settings-preview"><FloatingBadge metrics={selected} stats={preview}/><p>示例预览 · 已选 {selected.length}/3<br/>单击显示或隐藏界面，拖动调整位置</p></div>
     <div className="floating-options">{ordered.map(id=>{const checked=selected.includes(id);const index=selected.indexOf(id);return <div key={id} className="floating-option"><Checkbox checked={checked} disabled={checked?selected.length===1:selected.length>=3} onChange={event=>toggle(id,event.target.checked)}>{floatingMetrics.find(item=>item.id===id)!.label}</Checkbox>{checked&&<div className="floating-option-order"><small>{index+1}</small><IconAction label={`上移${floatingMetrics.find(item=>item.id===id)!.label}`} disabled={index===0} icon={<IconArrowUp size={13}/>} onClick={()=>move(id,-1)}/><IconAction label={`下移${floatingMetrics.find(item=>item.id===id)!.label}`} disabled={index===selected.length-1} icon={<IconArrowDown size={13}/>} onClick={()=>move(id,1)}/></div>}</div>})}</div>
   </section>;
 }

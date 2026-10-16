@@ -24,9 +24,9 @@ export default function Floating(){
     theme();media.addEventListener('change',theme);return()=>media.removeEventListener('change',theme);
   },[config.theme]);
   const menu=()=>{if(isTauri())void invoke('floating_menu').catch(error=>setError(String(error)))};
-  const open=()=>{if(isTauri())void invoke('floating_open_main').catch(error=>setError(String(error)))};
-  return <button className="floating-hit" aria-label="打开 Portside" title={error||'点击打开 Portside · 拖动移动 · 右键设置'} onPointerDown={event=>{if(event.button===0){drag.current={x:event.screenX,y:event.screenY,dragged:false};event.currentTarget.setPointerCapture(event.pointerId)}}} onPointerMove={event=>{
+  const toggle=()=>{if(isTauri())void invoke('floating_toggle_main').catch(error=>setError(String(error)))};
+  return <button className="floating-hit" aria-label="显示或隐藏 Portside" title={error||'点击显示或隐藏 Portside · 拖动移动 · 右键设置'} onPointerDown={event=>{if(event.button===0){drag.current={x:event.screenX,y:event.screenY,dragged:false};event.currentTarget.setPointerCapture(event.pointerId)}}} onPointerMove={event=>{
     const start=drag.current;if(!start||start.dragged||!event.buttons)return;
     if(Math.hypot(event.screenX-start.x,event.screenY-start.y)>5){start.dragged=true;if(isTauri())void getCurrentWindow().startDragging().catch(error=>setError(String(error)))}
-  }} onPointerUp={event=>{const start=drag.current;drag.current=undefined;if(start&&!start.dragged&&Math.hypot(event.screenX-start.x,event.screenY-start.y)<=5)open()}} onPointerCancel={()=>{drag.current=undefined}} onClick={event=>{if(event.detail===0)open()}} onKeyDown={event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();menu()}}} onContextMenu={event=>{event.preventDefault();menu()}}><FloatingBadge metrics={config.metrics} stats={stats}/></button>;
+  }} onPointerUp={event=>{const start=drag.current;drag.current=undefined;if(start&&!start.dragged&&Math.hypot(event.screenX-start.x,event.screenY-start.y)<=5)toggle()}} onPointerCancel={()=>{drag.current=undefined}} onClick={event=>{if(event.detail===0)toggle()}} onKeyDown={event=>{if(event.key==='ContextMenu'||event.shiftKey&&event.key==='F10'){event.preventDefault();menu()}}} onContextMenu={event=>{event.preventDefault();menu()}}><FloatingBadge metrics={config.metrics} stats={stats}/></button>;
 }
