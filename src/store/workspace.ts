@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { normalizeMetrics, type FloatingMetric } from '@/services/floating';
 import { createJSONStorage, persist } from 'zustand/middleware';
 import { shortcuts, initialSession } from '@/data/demo';
 import type { Process, Port, Shortcut, Server, Session } from '@/data/demo';
@@ -7,8 +8,8 @@ import { disposeTerminal } from '@/services/terminal';
 import { workspaceStorage, blockConfigWrites } from '@/services/config';
 import type { RemoteFileWorkspace } from '@/data/demoFiles';
 
-type Settings = { theme: 'light' | 'dark' | 'system'; background: string; opacity: number; blur: number; terminalTheme: 'dark' | 'light'; extraColumns: boolean };
-export const defaultSettings: Settings = {theme:'light',background:'',opacity:20,blur:10,terminalTheme:'dark',extraColumns:false};
+type Settings = { floatingEnabled:boolean; floatingMetrics:FloatingMetric[]; theme: 'light' | 'dark' | 'system'; background: string; opacity: number; blur: number; terminalTheme: 'dark' | 'light'; extraColumns: boolean };
+export const defaultSettings: Settings = {theme:'light',background:'',opacity:20,blur:10,terminalTheme:'dark',extraColumns:false,floatingEnabled:false,floatingMetrics:['cpu']};
 type Workspace = {
   processes: Process[]; ports: Port[]; shortcuts: Shortcut[]; shortcutTags: string[]; servers: Server[];
   sessions: Session[]; activeSession: string; settings: Settings;
@@ -64,6 +65,6 @@ export const useWorkspace = create<Workspace>()(persist((set)=>({
       return {id:item.id,name:item.name,directory:item.directory,command:item.command,tag};
     });
     const shortcutTags=Array.from(new Set([...(saved?.shortcutTags??current.shortcutTags),...migratedShortcuts.flatMap(item=>item.tag?[item.tag]:[])]));
-    return {...current,servers:saved?.servers??current.servers,shortcuts:migratedShortcuts,shortcutTags,settings:{...defaultSettings,...settings}};
+    return {...current,servers:saved?.servers??current.servers,shortcuts:migratedShortcuts,shortcutTags,settings:{...defaultSettings,...settings,floatingMetrics:normalizeMetrics(settings.floatingMetrics)}};
   },
 }));

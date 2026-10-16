@@ -4,11 +4,12 @@ import path from 'node:path';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
 const config = JSON.parse(await readFile(path.join(root, 'src-tauri/tauri.conf.json'), 'utf8'));
+const { version } = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8'));
 const bundle = path.join(root, 'src-tauri/target/release/bundle');
-const output = path.join(root, 'build');
+const output = path.join(root, 'build', version);
 const app = `${config.productName}.app`;
 const dmgs = (await readdir(path.join(bundle, 'dmg'))).filter(name =>
-  name.startsWith(`${config.productName}_${config.version}_`) && name.endsWith('.dmg'),
+  name.startsWith(`${config.productName}_${version}_`) && name.endsWith('.dmg'),
 );
 if (!dmgs.length) throw new Error('未找到当前版本的 DMG 安装包');
 await stat(path.join(bundle, 'macos', app));

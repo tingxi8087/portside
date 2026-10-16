@@ -1,4 +1,7 @@
 import { useEffect, useState, type CSSProperties } from 'react';
+import { isTauri } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
+import { normalizeMetrics, updateFloating } from '@/services/floating';
 import { HashRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { App as InkApp, ConfigProvider, Modal, Tabs, Button, Input } from 'paper-ink';
 import { IconPlugConnected, IconActivity, IconTerminal2, IconServer, IconSettings, IconCommand, IconSearch, IconBolt, IconPlus, IconChevronRight } from 'paper-ink/icons';
@@ -52,6 +55,14 @@ export default function App() {
   useEffect(()=>{const finish=useWorkspace.persist.onFinishHydration(()=>setHydrated(true));const fail=(event:Event)=>setStartupError((event as CustomEvent<string>).detail);window.addEventListener('portside-config-error',fail);if(useWorkspace.persist.hasHydrated())setHydrated(true);if(lastConfigError)setStartupError(lastConfigError);return()=>{finish();window.removeEventListener('portside-config-error',fail)}},[]);
   const settings=useWorkspace(s=>s.settings);const [systemDark,setSystemDark]=useState(window.matchMedia('(prefers-color-scheme: dark)').matches);
   useEffect(()=>{const media=window.matchMedia('(prefers-color-scheme: dark)');const change=()=>setSystemDark(media.matches);media.addEventListener('change',change);return()=>media.removeEventListener('change',change)},[]);
+  useEffect(()=>{
+    if(!hydrated||!isTauri())return;
+    const subscription=listen<{enabled?:boolean;metrics?:string[]}>('floating-change',event=>{
+      useWorkspace.getState().setSettings({...(event.payload.enabled!==undefined?{floatingEnabled:event.payload.enabled}:{}),...(event.payload.metrics?{floatingMetrics:normalizeMetrics(event.payload.metrics)}:{})});
+    });
+    return()=>{void subscription.then(stop=>stop())};
+  },[hydrated]);
+  useEffect(()=>{if(hydrated)void updateFloating({enabled:settings.floatingEnabled,metrics:settings.floatingMetrics,theme:settings.theme}).catch(error=>window.dispatchEvent(new CustomEvent('portside-config-error',{detail:`悬浮球设置失败：${String(error)}`})))},[hydrated,settings.floatingEnabled,settings.floatingMetrics,settings.theme]);
   const dark=settings.theme==='dark'||settings.theme==='system'&&systemDark;
   const ink = dark ? '#e5e3de' : '#292825';
   useEffect(()=>{document.documentElement.dataset.theme=dark?'dark':'light';document.documentElement.style.setProperty('--accent',ink)},[dark,ink]);

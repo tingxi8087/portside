@@ -543,3 +543,5 @@ with tempfile.TemporaryFile() as f:
         assert!(measurements.3.unwrap() > 0.);
     }
 }
+
+pub fn listener_count()->Result<usize,String>{let (stdout,stderr,status)=output("/usr/sbin/lsof", &["-nP","-iTCP","-sTCP:LISTEN","-iUDP","-F","pPn"])?;if status!=0&&status!=1{return Err(stderr)}Ok(parse_ports(&stdout).len())}

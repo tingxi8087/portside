@@ -1,4 +1,5 @@
 mod config;
+mod floating;
 mod desktop;
 mod system;
 mod terminal;
@@ -9,17 +10,23 @@ use tauri::Manager;
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, Some(vec!["--autostart"])))
+        .manage(floating::FloatingState::default())
+        .manage(floating::FloatingMeter::default())
+        .on_menu_event(|app,event|floating::menu_event(app,event.id().as_ref()))
         .manage(config::ConfigLock::default())
         .manage(system::SystemMonitor::default())
         .manage(terminal::TerminalManager::default())
         .on_window_event(|window, event| {
+            if matches!(event,tauri::WindowEvent::Moved(_)){floating::moved(window);}
             #[cfg(target_os = "macos")]
             if window.label() == "main" {
                 if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                     // Closing the window behaves like Cmd+H. Only an explicit
                     // application quit should end the live terminal sessions.
                     api.prevent_close();
-                    if let Err(error) = window.app_handle().hide() {
+                    if window.app_handle().get_webview_window("floating").is_some_and(|ball|ball.is_visible().unwrap_or(false)){let _=window.hide();}
+                    else if let Err(error) = window.app_handle().hide() {
                         eprintln!("Could not hide Portside: {error}");
                         let _ = window.hide();
                     }
@@ -28,7 +35,7 @@ pub fn run() {
             #[cfg(not(target_os = "macos"))]
             let _ = (window, event);
         })
-        .invoke_handler(tauri::generate_handler![config::config_read, config::config_write, desktop::clipboard_read, desktop::clipboard_write, desktop::pick_directory, desktop::shortcut_import_file, desktop::shortcut_export_file, system::system_snapshot, system::terminate_process, terminal::terminal_start, terminal::terminal_write, terminal::terminal_resize, terminal::terminal_ack, terminal::terminal_close, terminal::terminal_has_tasks,
+        .invoke_handler(tauri::generate_handler![floating::floating_configure, floating::floating_state, floating::floating_sample, floating::floating_open_main, floating::floating_menu, config::config_read, config::config_write, desktop::clipboard_read, desktop::clipboard_write, desktop::pick_directory, desktop::shortcut_import_file, desktop::shortcut_export_file, system::system_snapshot, system::terminate_process, terminal::terminal_start, terminal::terminal_write, terminal::terminal_resize, terminal::terminal_ack, terminal::terminal_close, terminal::terminal_has_tasks,
             ssh::ssh_host_info,ssh::ssh_trust_host,ssh::ssh_save_credentials,ssh::ssh_delete_credentials,ssh::ssh_has_credentials,ssh::ssh_connect,ssh::ssh_disconnect,
             ssh::ssh_terminal_open,ssh::ssh_terminal_write,ssh::ssh_terminal_ack,ssh::ssh_terminal_resize,ssh::ssh_terminal_close,
             ssh::text::ssh_text_read,ssh::text::ssh_text_save,ssh::ssh_list,ssh::ssh_file_action,ssh::ssh_transfer_cancel,ssh::ssh_pick_upload,ssh::ssh_pick_download,ssh::ssh_transfer])

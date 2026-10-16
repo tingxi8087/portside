@@ -34,6 +34,11 @@ fn validate(value:&Value)->Result<(),String>{
         let settings=settings.as_object().ok_or("外观配置格式无效")?;
         for key in ["theme","background","terminalTheme"]{if let Some(v)=settings.get(key){if !v.is_string(){return Err(format!("外观 {key} 必须是文本"))}}}
         for key in ["opacity","blur"]{if let Some(v)=settings.get(key){if !v.as_f64().map(|n|n.is_finite()&&(0.0..=100.0).contains(&n)).unwrap_or(false){return Err(format!("外观 {key} 超出范围"))}}}
+        if let Some(v)=settings.get("floatingEnabled"){if !v.is_boolean(){return Err("悬浮球开关格式无效".into())}}
+        if let Some(v)=settings.get("floatingMetrics"){
+            let items=v.as_array().ok_or("悬浮球指标格式无效")?;
+            if items.is_empty()||items.len()>3||items.iter().enumerate().any(|(i,item)|!matches!(item.as_str(),Some("cpu"|"memory"|"download"|"upload"|"ports"))||items[..i].contains(item)){return Err("请选择 1 至 3 个不同的悬浮球指标".into())}
+        }
         if let Some(v)=settings.get("extraColumns"){if !v.is_boolean(){return Err("列显示配置无效".into())}}
     }
     Ok(())

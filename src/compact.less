@@ -245,3 +245,11 @@
   .terminal-emulator, .terminal-emulator .xterm, .terminal-emulator .xterm-screen,
   .terminal-emulator .xterm-viewport { background: transparent; }
 }
+
+.settings-page--tabs { height: min(460px, 68vh); }
+.settings-page--tabs .settings-tabs { display:flex; flex-direction:column; flex:1; min-height:0; }
+.settings-page--tabs .pi-tabs__bar { flex-shrink:0; border-color:var(--line); }
+.settings-page--tabs .pi-tabs__nav { gap:24px; }
+.settings-page--tabs .pi-tabs__panel { flex:1; min-height:0; overflow-y:auto; padding:16px 4px 4px; }
+.settings-page--tabs .pi-tabs__panel > .settings-section:last-child { border-bottom:0; margin-bottom:0; }
+.settings-page--tabs .settings-footer { flex-shrink:0; min-height:38px; padding:10px 0 0; border-top:1px solid var(--line); }
