@@ -6,3 +6,4 @@ src-tauri/gen/
 .DS_Store
 .env.local
 doc/screenshots
+/build/

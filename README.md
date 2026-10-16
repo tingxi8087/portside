@@ -17,7 +17,7 @@ npm run dev
 npm run build
 ```
 
-`dev` 启动 Tauri 桌面应用及其前端开发服务；`build` 构建生产版桌面应用，生成 `src-tauri/target/release/bundle/macos/Portside.app` 和 `src-tauri/target/release/bundle/dmg/` 下的 DMG。如需仅启动或构建前端，使用 `npm run dev:web` / `npm run build:web`。
+`dev` 启动 Tauri 桌面应用及其前端开发服务；`build` 构建生产版桌面应用，打包后自动将 `Portside.app` 和对应版本的 DMG 复制到项目根目录 `build/`（已加入 Git 忽略）。Tauri 原始构建缓存仍保留在 `src-tauri/target/`。如需仅启动或构建前端，使用 `npm run dev:web` / `npm run build:web`。
 
 其他检查与调试打包：
 
