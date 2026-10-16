@@ -1,0 +1,17 @@
+.terminal-shortcuts-modal .pi-modal { max-width: calc(100vw - 32px); padding: 20px; }
+.terminal-shortcuts-modal .pi-modal-body { min-height: 0; }
+.terminal-shortcuts-modal .pi-tabs__panel { padding: 0; }
+.terminal-shortcuts-scroll { max-height: min(480px, calc(100dvh - 190px)); overflow-y: auto; overscroll-behavior: none; padding-right: 6px; }
+.terminal-shortcuts-note { color: var(--muted); font-size: 11px; line-height: 1.7; margin: 12px 0; }
+.terminal-shortcuts-group { margin-bottom: 16px; }
+.terminal-shortcuts-group h3 { font-size: 11px; font-weight: 550; color: var(--muted); padding: 6px 0; border-bottom: 1px solid var(--line); }
+.terminal-shortcuts-group dl { margin: 0; }
+.terminal-shortcut-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 31px; padding: 4px 0; }
+.terminal-shortcut-row dt { font-size: 12px; min-width: 0; }
+.terminal-shortcut-row dd { display: flex; flex-wrap: wrap; justify-content: flex-end; margin: 0; flex-shrink: 0; }
+.terminal-shortcut-key { display: inline-flex; align-items: center; gap: 4px; }
+.terminal-shortcut-key + .terminal-shortcut-key { margin-left: 4px; }
+.terminal-shortcut-key kbd { font-size: 10px; line-height: 20px; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--soft); color: var(--text); white-space: nowrap; }
+.terminal-shortcut-join { color: var(--muted); font-size: 10px; }
+.terminal-shortcuts-footnote { border-top: 1px solid var(--line); padding-top: 10px; }
+@media(max-width:480px){.terminal-shortcut-row{align-items:flex-start}.terminal-shortcut-row dd{flex-shrink:1;min-width:100px}.terminal-shortcut-row dt{max-width:55%}}

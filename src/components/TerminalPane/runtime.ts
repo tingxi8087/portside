@@ -19,6 +19,17 @@ export function getRuntime(session:Session,transport:TerminalTransport):Runtime{
   terminal.onResize(({cols,rows})=>{if(runtime.status==='ready')void transport.resize(session.id,cols,rows).catch(()=>{})});
   terminal.attachCustomKeyEventHandler(event=>{
     if(event.type!=='keydown')return true;
+    if(event.shiftKey&&!event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.isComposing&&terminal.buffer.active.type==='normal'&&(event.key==='ArrowLeft'||event.key==='ArrowRight')){
+      // Shells do not consistently bind CSI 1;2D/C. Keep movement predictable
+      // in the main buffer while preserving modified keys in alternate-screen apps.
+      event.preventDefault();event.stopPropagation();
+      terminal.input(event.key==='ArrowLeft'?'\x1b[D':'\x1b[C',true);return false;
+    }
+    if(event.altKey&&!event.ctrlKey&&!event.metaKey&&!event.shiftKey&&!event.isComposing&&event.key==='Backspace'){
+      // Use the shell's word-erase control instead of the ambiguous Esc+DEL binding.
+      event.preventDefault();event.stopPropagation();
+      terminal.input('\x17',true);return false;
+    }
     if((event.metaKey||event.ctrlKey&&event.shiftKey)&&event.key.toLowerCase()==='c'&&terminal.hasSelection()){
       void writeClipboard(terminal.getSelection());return false;
     }
@@ -38,9 +49,18 @@ export function getRuntime(session:Session,transport:TerminalTransport):Runtime{
   }).then(async()=>{
     if(runtime.disposed){await transport.close(session.id);return;}
     // A short-lived command can exit before the start response arrives.
-    if(runtime.status==='connecting')update('ready','已连接');
-    if(session.initialCommand&&runtime.status==='ready')await transport.write(session.id,session.initialCommand+'\r');
+    if(runtime.status!=='connecting')return;
     try{fit.fit()}catch{/* Container can be hidden until the next ResizeObserver callback. */}
+    // Fits during connection cannot resize the PTY yet. FitAddon emits nothing
+    // when dimensions are unchanged, so explicitly synchronize before accepting input.
+    let cols:number,rows:number;
+    do {
+      cols=terminal.cols;rows=terminal.rows;
+      await transport.resize(session.id,cols,rows);
+      if(runtime.disposed||runtime.status!=='connecting')return;
+    }while(cols!==terminal.cols||rows!==terminal.rows);
+    update('ready','已连接');
+    if(session.initialCommand)await transport.write(session.id,session.initialCommand+'\r');
   }).catch(error=>{if(!runtime.disposed){update('error',terminalError(error));terminal.writeln(`\r\n${terminalError(error)}`)}});
   registerTerminalDisposer(session.id,()=>{
     runtime.disposed=true;runtimes.delete(session.id);terminal.dispose();
