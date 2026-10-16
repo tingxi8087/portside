@@ -11,6 +11,7 @@ export function useRemoteEditors(transport:TextTransport=ssh) {
   const [activeId,setActiveId]=useState('');const {message}=App.useApp();
   const savingIds=useRef(new Set<string>());
   const opening=useRef(new Set<string>());const epochs=useRef(new Map<string,number>());
+  const [openingKeys,setOpeningKeys]=useState(new Set<string>());
   const [pending,setPending]=useState<{ids:string[];resolve:(allow:boolean)=>void}>();const pendingRef=useRef(false);
   const [guardSaving,setGuardSaving]=useState(false);
   const update=(id:string,change:Partial<RemoteDocument>)=>setDocuments(current=>{const next=current.map(doc=>doc.id===id?{...doc,...change}:doc);docs.current=next;return next});
@@ -18,7 +19,7 @@ export function useRemoteEditors(transport:TextTransport=ssh) {
     const existing=docs.current.find(doc=>doc.serverId===serverId&&doc.path===path);
     if(existing){setActiveId(existing.id);return}
     const key=JSON.stringify([serverId,path]);if(opening.current.has(key))return;
-    opening.current.add(key);const epoch=epochs.current.get(serverId)??0;
+    opening.current.add(key);setOpeningKeys(new Set(opening.current));const epoch=epochs.current.get(serverId)??0;
     try {
       const file=await transport.readText(serverId,path);
       if((epochs.current.get(serverId)??0)!==epoch)return;
@@ -26,7 +27,7 @@ export function useRemoteEditors(transport:TextTransport=ssh) {
       if(duplicate){setActiveId(duplicate.id);return}
       const doc:RemoteDocument={...file,id:crypto.randomUUID(),serverId,serverName,baseline:file.content,saving:false,error:'',generation:0};
       setDocuments(current=>{const next=[...current,doc];docs.current=next;return next});setActiveId(doc.id);
-    }catch(error){message.error(terminalError(error))}finally{opening.current.delete(key)}
+    }catch(error){message.error(terminalError(error))}finally{opening.current.delete(key);setOpeningKeys(new Set(opening.current))}
   };
   const save=async(id:string)=>{
     const doc=docs.current.find(d=>d.id===id);
@@ -68,5 +69,6 @@ export function useRemoteEditors(transport:TextTransport=ssh) {
   const confirmation=<Modal open={!!pending} centered width={420} title="有未保存的修改" closable={!guardSaving} maskClosable={!guardSaving} keyboard={!guardSaving} onCancel={()=>{if(!guardSaving)answer(false)}} footer={<><Button size="small" disabled={guardSaving} onClick={()=>answer(false)}>取消</Button><Button size="small" disabled={guardSaving} onClick={()=>answer(true)}>不保存</Button><Button size="small" type="primary" loading={guardSaving} onClick={()=>void savePending()}>保存</Button></>}>
     <p style={{fontSize:12,lineHeight:1.8,overflowWrap:'anywhere'}}>{pending?.ids.map(id=>docs.current.find(doc=>doc.id===id)?.path.split('/').pop()).join('、')} 尚未保存。</p>
   </Modal>;
-  return {documents,versions,activeId,setActiveId,open,save,close,reload,guardServer,removeServer,update,confirmation};
+  const isOpening=(serverId:string,path:string)=>openingKeys.has(JSON.stringify([serverId,path]));
+  return {documents,versions,activeId,setActiveId,open,isOpening,save,close,reload,guardServer,removeServer,update,confirmation};
 }

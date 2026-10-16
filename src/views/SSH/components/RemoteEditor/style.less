@@ -1,3 +1,5 @@
+.remote-editor { --editor-selection: #d2cec4; --editor-selection-muted: #e4e0d8; --editor-active-line: #29282508; }
+[data-theme='dark'] .remote-editor { --editor-selection: #615e56; --editor-selection-muted: #4b4943; --editor-active-line: #ffffff08; }
 .remote-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; background: var(--bg); }
 .remote-editor[hidden] { display: none !important; }
 .remote-editor-toolbar { display: flex; align-items: center; gap: 4px; padding: 5px 10px; border-bottom: 1px solid var(--line); min-height: 34px; flex-shrink: 0; }
@@ -8,6 +10,7 @@
 .remote-editor-unavailable { flex: 1; padding: 32px 20px; text-align: center; font-size: 12px; }
 .remote-editor-unavailable p,.remote-editor-unavailable > span { color: var(--muted); }
 .file-row-wrap { display: flex; align-items: center; border-bottom: 1px solid var(--line); }
+.file-row.is-opening { opacity: 1; cursor: progress; }
 .file-row-wrap > .file-row { flex: 1; min-width: 0; border-bottom: 0; }
 .file-row-wrap > .inline-action { flex-shrink: 0; margin-right: 5px; }
 

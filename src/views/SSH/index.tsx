@@ -120,7 +120,7 @@ export default function SSH() {
     {!active&&<Empty title="尚未连接服务器" description="连接服务器后浏览文件。" icon={<IconFolder size={26} stroke={1.3}/>}/>}
     {Array.from(new Set(remoteSessions.map(session=>session.serverId!))).map(id=>{
       const serverName=servers.find(server=>server.id===id)?.name??remoteSessions.find(session=>session.serverId===id)?.name??'远程服务器';
-      return <div className="ssh-file-instance" hidden={active?.serverId!==id} key={id}><FilePanel refreshKey={editors.versions[id]??0} onOpenFile={path=>void editors.open(id,serverName,path)} serverId={id} serverName={serverName} initialPath={remoteSessions.find(s=>s.serverId===id)?.directory==='~'?'.':remoteSessions.find(s=>s.serverId===id)?.directory??'.'} onOpenTerminal={path=>{editors.setActiveId('');addSession(createSession(`${serverName} · 文件`,path,undefined,id))}}/></div>;
+      return <div className="ssh-file-instance" hidden={active?.serverId!==id} key={id}><FilePanel isOpeningFile={path=>editors.isOpening(id,path)} refreshKey={editors.versions[id]??0} onOpenFile={path=>void editors.open(id,serverName,path)} serverId={id} serverName={serverName} initialPath={remoteSessions.find(s=>s.serverId===id)?.directory==='~'?'.':remoteSessions.find(s=>s.serverId===id)?.directory??'.'} onOpenTerminal={path=>{editors.setActiveId('');addSession(createSession(`${serverName} · 文件`,path,undefined,id))}}/></div>;
     })}
   </div>;
   const runShortcut=(shortcut:{name:string;command:string;directory:string})=>{if(!active)return;editors.setActiveId('');void sshTerminalTransport.write(active.id,shortcutCommand(shortcut)).catch(e=>message.error(terminalError(e)))};
