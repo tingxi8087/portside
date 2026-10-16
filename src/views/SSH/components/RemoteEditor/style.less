@@ -1,5 +1,7 @@
-.remote-editor { --editor-selection: #d2cec4; --editor-selection-muted: #e4e0d8; --editor-active-line: #29282508; }
-[data-theme='dark'] .remote-editor { --editor-selection: #615e56; --editor-selection-muted: #4b4943; --editor-active-line: #ffffff08; }
+.remote-editor { --editor-selection: #d2cec4; --editor-selection-muted: #e4e0d8; --editor-active-line: #29282508; --editor-selection-match: #29282514; }
+[data-theme='dark'] .remote-editor { --editor-selection: #615e56; --editor-selection-muted: #4b4943; --editor-active-line: #ffffff08; --editor-selection-match: #ffffff18; }
+.remote-editor .cm-editor .cm-selectionMatch { background-color: var(--editor-selection-match); }
+.remote-editor .cm-editor .cm-searchMatch .cm-selectionMatch { background-color: transparent; }
 .remote-editor { display: flex; flex-direction: column; flex: 1; min-height: 0; min-width: 0; background: var(--bg); }
 .remote-editor[hidden] { display: none !important; }
 .remote-editor-toolbar { display: flex; align-items: center; gap: 4px; padding: 5px 10px; border-bottom: 1px solid var(--line); min-height: 34px; flex-shrink: 0; }
