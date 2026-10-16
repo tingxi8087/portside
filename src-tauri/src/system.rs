@@ -23,6 +23,7 @@ pub struct ProcessInfo {
     pub identity: String,
     pub color: String,
     pub cpu: Option<f64>,
+    /// Physical footprint in decimal MB, matching Activity Monitor's memory metric.
     pub memory: Option<f64>,
     pub disk: Option<f64>,
     pub network: Option<f64>,
@@ -125,6 +126,9 @@ fn process_cpu_percent(ticks: u64, seconds: f64) -> Option<f64> {
 fn cpu_percent_for_timebase(ticks: u64, seconds: f64, numer: u32, denom: u32, logical_cpus: u32) -> Option<f64> {
     if !seconds.is_finite() || seconds <= 0.0 || numer == 0 || denom == 0 || logical_cpus == 0 { return None }
     Some(ticks as f64 * (numer as f64 / denom as f64) / 1e9 / seconds / logical_cpus as f64 * 100.0)
+}
+fn footprint_mb(usage: Option<&Usage>) -> Option<f64> {
+    usage.map(|usage| usage.footprint as f64 / 1_000_000.0)
 }
 fn executable(pid: u32) -> String {
     let mut b = [0u8; 4096];
@@ -240,7 +244,7 @@ fn process_rows(pid: Option<u32>) -> Result<Vec<(ProcessInfo, Option<Usage>)>, S
                 name,
                 color: "gray".into(),
                 cpu: None,
-                memory: fields[5].parse::<f64>().ok().map(|rss| rss / 1024.),
+                memory: footprint_mb(u.as_ref()),
                 disk: None,
                 network: None,
                 network_in: None,
@@ -340,7 +344,7 @@ impl Sampler {
                 HashMap::new()
             }
         };
-        warnings.push("系统权限可能限制其他用户的端口、命令行和资源数据；— 表示首采样或不可用。CPU 为进程占整机的比例（按逻辑核心数归一化），内存为 RSS MiB，磁盘和网络为采样间隔内 KiB/s。".into());
+        warnings.push("系统权限可能限制其他用户的端口、命令行和资源数据；— 表示首采样或不可用。CPU 为进程占整机的比例（按逻辑核心数归一化），内存为 Memory Footprint（MB / GB），磁盘和网络为采样间隔内 KiB/s。".into());
         let now = Instant::now();
         let mut next = HashMap::new();
         let mut processes = vec![];
@@ -467,6 +471,20 @@ mod tests {
             parse_network("Google.Chrome.42,123,456,\n").get(&42),
             Some(&(123, 456))
         );
+    }
+    #[test]
+    fn footprint_does_not_fall_back_to_resident_memory() {
+        let usage = Usage { resident: 200_000_000, footprint: 1_500_000_000, ..Usage::default() };
+        assert_eq!(footprint_mb(Some(&usage)), Some(1500.0));
+        assert_eq!(footprint_mb(None), None);
+        assert_eq!(footprint_mb(Some(&Usage::default())), Some(0.0));
+    }
+    #[test]
+    fn process_memory_matches_native_footprint_in_decimal_mb() {
+        let (process, native) = process_rows(Some(std::process::id())).unwrap().remove(0);
+        let footprint_mb = native.expect("native self usage").footprint as f64 / 1_000_000.0;
+        println!("display memory: {:?}, native footprint: {footprint_mb:.3} MB", process.memory);
+        assert_eq!(process.memory, Some(footprint_mb));
     }
     #[test]
     fn protects_core_and_self() {

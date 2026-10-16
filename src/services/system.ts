@@ -1,7 +1,8 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
+export { formatProcessMemory } from '@/utils/processMemory';
 import type { Process } from '@/data/demo';
 export type SystemProcess = Omit<Process, 'cpu' | 'memory' | 'disk' | 'network'> & {
-  cpu: number | null; memory: number | null; disk: number | null; network: number | null;
+  cpu: number | null; /** Physical footprint in decimal MB. */ memory: number | null; disk: number | null; network: number | null;
   networkIn: number | null; networkOut: number | null; parent: number; mine: boolean;
   identity: string; executable: string; started: string; metricsNote: string;
 };
