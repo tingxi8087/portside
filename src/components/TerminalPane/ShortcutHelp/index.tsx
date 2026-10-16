@@ -22,6 +22,7 @@ const editing:Shortcut[]=[
   {label:'补全命令、文件名或路径',keys:['Tab']},
 ];
 const appShortcuts:Shortcut[]=[
+  {label:'打开 / 聚焦当前页面搜索',keys:['Command','F']},
   {label:'展开 / 收起右侧面板',keys:['Command','B']},
   {label:'切换终端 / SSH / 端口 / 进程',keys:['Command','1–4']},
   {label:'搜索页面、连接或快捷指令',keys:['Command','K']},

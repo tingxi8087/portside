@@ -1,6 +1,7 @@
+import { usePageSearch } from '@/hooks/usePageSearch';
 import RowContextMenu from '@/components/RowContextMenu';
 import ResizableWorkspace from '@/components/ResizableWorkspace';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { App, Table, Select, Tooltip } from 'paper-ink';
 import type { TableColumn } from 'paper-ink';
@@ -13,6 +14,8 @@ import { metric, formatProcessMemory, iconProcess, type SystemPort } from '@/ser
 import { Button, Search, ProcessIcon, Empty, DetailPanel, DetailRow, IconAction } from '@/components/UI';
 
 export default function Ports() {
+  const page=useRef<HTMLDivElement>(null);
+  usePageSearch(page,'.toolbar .search input');
   const { snapshot, error, loading, refresh } = useSystemMonitor('ports');
   const ports = snapshot?.ports ?? []; const processes = snapshot?.processes ?? [];
   const narrow = useMediaQuery('(max-width: 760px)');
@@ -32,7 +35,7 @@ export default function Ports() {
     {dataIndex:'address',title:'监听地址',hidden:narrow,render:address=><span className="mono muted">{address}</span>},
     {key:'action',title:'',width:50,align:'right',render:(_,p)=>{const process=processes.find(item=>item.pid===p.pid);return <IconAction label="结束进程" aria-label={`结束进程 ${p.pid}`} icon={<IconX size={14}/>} danger disabled={!process||ending!==undefined} loading={ending===p.pid} onClick={event=>{event.stopPropagation();if(process)requestEnd(process)}}/>}},
   ];
-  return <div className="page ports-page">
+  return <div ref={page} className="page ports-page">
     <div className="toolbar"><Button aria-label="刷新" title="刷新真实端口" loading={loading} icon={<IconRefresh size={15}/>} onClick={()=>void refresh()}/><Select<string> className="scope-select" aria-label="端口范围" size="small" value={scope} onChange={setScope} options={[{value:'all',label:'全部端口'},{value:'local',label:'仅本机'},{value:'network',label:'非回环地址'}]}/><span className="toolbar-count" title={snapshot?.warnings.join('\n')}>{data.length} 个端口</span><Search value={query} onChange={setQuery} placeholder="搜索端口、进程或 PID…"/></div>
     {error&&<div role="alert" className="form-error" style={{padding:'8px 16px'}}>{error}</div>}
     <ResizableWorkspace className="process-split" label="进程详情" sidebar={<DetailPanel title="进程详情" onClear={selected?()=>setSelectedIdentity(undefined):undefined}>{selected&&<><div className="detail-identity"><ProcessIcon process={iconProcess(selected)}/><div><Tooltip title={selected.name} trigger={['hover','focus']}><h3 tabIndex={0}>{selected.name}</h3></Tooltip><Tooltip title={selected.user} trigger={['hover','focus']}><p tabIndex={0}>{selected.user}</p></Tooltip></div></div><DetailRow label="进程 ID"><span className="mono">{selected.pid}</span></DetailRow><DetailRow label="用户">{selected.user}</DetailRow><DetailRow label="CPU / 内存">{metric(selected.cpu,'%')} / {formatProcessMemory(selected.memory)}</DetailRow><DetailRow label="占用端口"><div className="chips">{ports.filter(p=>p.pid===selected.pid).map(p=><span key={p.id} className="chip mono">{p.port}</span>)}</div></DetailRow><div className="detail-block"><h4>启动命令</h4><code>{selected.command||'不可用'}</code><Button size="small" type="text" icon={<IconCopy size={14}/>} onClick={()=>{void writeClipboard(selected.command).then(()=>message.success('已复制命令')).catch(()=>message.error('复制失败，请手动选择命令'))}}>复制</Button></div><Button block icon={<IconArrowUpRight size={15}/>} onClick={()=>navigate(`/processes?pid=${selected.pid}`)}>查看进程</Button><Button block type="text" danger disabled={ending!==undefined} loading={ending===selected.pid} onClick={()=>requestEnd(selected)}>结束此进程</Button></>}</DetailPanel>}>
