@@ -18,7 +18,8 @@ export function parseShortcutFile(text: string): ShortcutEntry[] {
   return file.shortcuts.map((entry: unknown, index: number) => {
     const item = entry as Record<string, unknown> | null;
     if (!item || typeof item !== 'object' ||
-      !['name', 'command', 'directory'].every(key => typeof item[key] === 'string' && (item[key] as string).trim()) ||
+      !['name', 'command'].every(key => typeof item[key] === 'string' && (item[key] as string).trim()) ||
+      typeof item.directory !== 'string' ||
       !(item.tag === null || typeof item.tag === 'string')) throw new Error(`第 ${index + 1} 条指令的名称、命令、目录或标签无效`);
     // Explicitly pick configuration fields; never accept IDs or execution flags from a file.
     return {name: (item.name as string).trim(), command: item.command as string, directory: (item.directory as string).trim(), tag: typeof item.tag === 'string' ? item.tag.trim() || null : null};

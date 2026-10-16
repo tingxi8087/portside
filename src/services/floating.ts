@@ -1,5 +1,5 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
-export const floatingMetrics=[{id:'cpu',label:'CPU 使用率',short:'CPU'},{id:'memory',label:'内存使用率',short:'内存'},{id:'download',label:'下载速度',short:'下载'},{id:'upload',label:'上传速度',short:'上传'},{id:'ports',label:'监听端口数',short:'端口'}] as const;
+export const floatingMetrics=[{id:'cpu',label:'整机 CPU 使用率',short:'CPU'},{id:'memory',label:'内存使用率',short:'内存'},{id:'download',label:'下载速度',short:'下载'},{id:'upload',label:'上传速度',short:'上传'},{id:'ports',label:'监听端口数',short:'端口'}] as const;
 export type FloatingMetric=typeof floatingMetrics[number]['id'];
 export type FloatingConfig={enabled:boolean;metrics:FloatingMetric[];theme:'light'|'dark'|'system'};
 export type FloatingStats={cpu:number|null;memory:number|null;memoryUsed:number;memoryTotal:number;download:number|null;upload:number|null;ports:number|null};

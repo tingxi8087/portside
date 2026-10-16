@@ -1,3 +1,4 @@
+import { shortcutCommand } from '@/utils/shortcutCommand';
 import ResizableWorkspace from '@/components/ResizableWorkspace';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -122,10 +123,11 @@ export default function SSH() {
       return <div className="ssh-file-instance" hidden={active?.serverId!==id} key={id}><FilePanel refreshKey={editors.versions[id]??0} onOpenFile={path=>void editors.open(id,serverName,path)} serverId={id} serverName={serverName} initialPath={remoteSessions.find(s=>s.serverId===id)?.directory==='~'?'.':remoteSessions.find(s=>s.serverId===id)?.directory??'.'} onOpenTerminal={path=>{editors.setActiveId('');addSession(createSession(`${serverName} · 文件`,path,undefined,id))}}/></div>;
     })}
   </div>;
-  const runShortcut=(shortcut:{name:string;command:string;directory:string})=>{if(!active)return;editors.setActiveId('');const quote=(value:string)=>"'"+value.replace(/'/g,"'\\''")+"'";const directory=shortcut.directory==='~'?'"$HOME"':shortcut.directory.startsWith('~/')?'"$HOME"/'+quote(shortcut.directory.slice(2)):quote(shortcut.directory);void sshTerminalTransport.write(active.id,`cd -- ${directory} && eval ${quote(shortcut.command)}\r`).catch(e=>message.error(terminalError(e)))};
+  const runShortcut=(shortcut:{name:string;command:string;directory:string})=>{if(!active)return;editors.setActiveId('');void sshTerminalTransport.write(active.id,shortcutCommand(shortcut)).catch(e=>message.error(terminalError(e)))};
+  const runShortcutNew=(shortcut:{name:string;command:string;directory:string})=>{if(!active)return;editors.setActiveId('');addSession(createSession(shortcut.name,shortcut.directory||'~',shortcut.command,active.serverId))};
   return <div className="page ssh-page">
     <ResizableWorkspace className="workbench-split" label="SSH 工具" sidebar={<aside className="ssh-sidebar" aria-label="SSH 工具">
-        <Tabs className="ssh-sidebar-tabs" size="small" activeKey={sideTab} onChange={key=>setSideTab(key as typeof sideTab)} tabBarExtraContent={sideTab==='connections'?<IconAction label="新增连接" icon={<IconPlus size={16}/>} onClick={()=>void openEditor()}/>:undefined} items={[{key:'connections',label:'连接',children:connections},{key:'files',label:'文件',children:files},{key:'shortcuts',label:'快捷指令',children:<ShortcutPanel embedded directoryPicker={false} defaultDirectory={active?.directory??'~'} context={active?`运行到：${active.name}`:'未连接'} runDisabledReason={!active||!active.running?'请先连接服务器':undefined} onRun={active?runShortcut:undefined}/>}]}/>
+        <Tabs className="ssh-sidebar-tabs" size="small" activeKey={sideTab} onChange={key=>setSideTab(key as typeof sideTab)} tabBarExtraContent={sideTab==='connections'?<IconAction label="新增连接" icon={<IconPlus size={16}/>} onClick={()=>void openEditor()}/>:undefined} items={[{key:'connections',label:'连接',children:connections},{key:'files',label:'文件',children:files},{key:'shortcuts',label:'快捷指令',children:<ShortcutPanel embedded directoryPicker={false} context={active?`运行到：${active.name}`:'未连接'} runDisabledReason={!active||!active.running?'请先连接服务器':undefined} newRunDisabledReason={!active||!active.running?'请先连接服务器':undefined} onRun={active?runShortcut:undefined} onRunNew={active?runShortcutNew:undefined}/>}]}/>
       </aside>}>
       {remoteSessions.length?<TerminalPane transport={sshTerminalTransport} sessions={remoteSessions} activeId={activeSession}/>:<div className="ssh-terminal-placeholder"><Empty title="选择右侧连接开始" description="连接后在这里使用远程终端。" icon={<IconServer size={28} stroke={1.2}/>}/></div>}
     </ResizableWorkspace>

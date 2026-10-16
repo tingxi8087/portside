@@ -31,7 +31,7 @@ export default function ImportPreview({file, existing, onCancel, onImport}: {
           <div className={styles.details}>
             <div className={styles.title}><strong>{row.item.name}</strong><span>{base[i].duplicate?'已存在，跳过':row.renamed?'同名，创建副本':''}</span></div>
             <code>{entry.command}</code>
-            <div className={styles.metadata}><span title={entry.directory}>{entry.directory}</span><span>{entry.tag??'未分类'}</span></div>
+            <div className={styles.metadata}><span title={entry.directory}>{entry.directory||'当前目录'}</span><span>{entry.tag??'未分类'}</span></div>
           </div>
         </div>;
       })}

@@ -8,7 +8,7 @@ use std::{
 };
 use tauri::{Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 const METRICS: [(&str, &str); 5] = [
-    ("cpu", "CPU 使用率"),
+    ("cpu", "整机 CPU 使用率"),
     ("memory", "内存使用率"),
     ("download", "下载速度"),
     ("upload", "上传速度"),

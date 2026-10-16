@@ -103,6 +103,29 @@ fn usage(pid: u32) -> Option<Usage> {
         None
     }
 }
+// proc_pid_rusage CPU counters use Mach absolute ticks, not nanoseconds.
+// Convert the delta (not the absolute counter) using the hardware timebase.
+fn process_cpu_percent(ticks: u64, seconds: f64) -> Option<f64> {
+    static TIMEBASE: std::sync::OnceLock<Option<(u32, u32)>> = std::sync::OnceLock::new();
+    #[allow(deprecated)]
+    let timebase = TIMEBASE.get_or_init(|| {
+        let mut info = libc::mach_timebase_info_data_t { numer: 0, denom: 0 };
+        if unsafe { libc::mach_timebase_info(&mut info) } == libc::KERN_SUCCESS && info.numer > 0 && info.denom > 0 {
+            Some((info.numer, info.denom))
+        } else { None }
+    });
+    let (numer, denom) = (*timebase)?;
+    static CPU_COUNT: std::sync::OnceLock<Option<u32>> = std::sync::OnceLock::new();
+    let logical_cpus = (*CPU_COUNT.get_or_init(|| {
+        let count = unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) };
+        u32::try_from(count).ok().filter(|count| *count > 0)
+    }))?;
+    cpu_percent_for_timebase(ticks, seconds, numer, denom, logical_cpus)
+}
+fn cpu_percent_for_timebase(ticks: u64, seconds: f64, numer: u32, denom: u32, logical_cpus: u32) -> Option<f64> {
+    if !seconds.is_finite() || seconds <= 0.0 || numer == 0 || denom == 0 || logical_cpus == 0 { return None }
+    Some(ticks as f64 * (numer as f64 / denom as f64) / 1e9 / seconds / logical_cpus as f64 * 100.0)
+}
 fn executable(pid: u32) -> String {
     let mut b = [0u8; 4096];
     let n = unsafe { proc_pidpath(pid as i32, b.as_mut_ptr(), b.len() as u32) };
@@ -317,7 +340,7 @@ impl Sampler {
                 HashMap::new()
             }
         };
-        warnings.push("系统权限可能限制其他用户的端口、命令行和资源数据；— 表示首采样或不可用。CPU 单核满载为 100%，内存为 RSS MiB，磁盘和网络为采样间隔内 KiB/s。".into());
+        warnings.push("系统权限可能限制其他用户的端口、命令行和资源数据；— 表示首采样或不可用。CPU 为进程占整机的比例（按逻辑核心数归一化），内存为 RSS MiB，磁盘和网络为采样间隔内 KiB/s。".into());
         let now = Instant::now();
         let mut next = HashMap::new();
         let mut processes = vec![];
@@ -329,7 +352,7 @@ impl Sampler {
                 if let Some(old) = self.previous.get(&p.identity) {
                     let seconds = now.duration_since(old.at).as_secs_f64();
                     if seconds > 0.1 {
-                        p.cpu = Some(cpu.saturating_sub(old.cpu) as f64 / 1e9 / seconds * 100.);
+                        p.cpu = process_cpu_percent(cpu.saturating_sub(old.cpu), seconds);
                         p.disk = Some(disk.saturating_sub(old.disk) as f64 / 1024. / seconds);
                         if let (Some((rx, tx)), Some((rx0, tx0))) = (net, old.network) {
                             if rx >= rx0 && tx >= tx0 {
@@ -500,6 +523,38 @@ mod tests {
         let result = terminate(child.id(), &p.identity, true).unwrap();
         let _ = child.wait();
         assert!(result.exited);
+    }
+    #[test]
+    fn cpu_timebase_covers_apple_silicon_intel_and_multiple_cores() {
+        // One saturated core on a ten-core machine is 10%, on either timebase.
+        assert!((cpu_percent_for_timebase(24_000_000, 1.0, 125, 3, 10).unwrap() - 10.0).abs() < 1e-6);
+        assert_eq!(cpu_percent_for_timebase(1_000_000_000, 1.0, 1, 1, 10), Some(10.0));
+        assert_eq!(cpu_percent_for_timebase(2_000_000_000, 1.0, 1, 1, 10), Some(20.0));
+        assert_eq!(cpu_percent_for_timebase(10_000_000_000, 1.0, 1, 1, 10), Some(100.0));
+        assert_eq!(cpu_percent_for_timebase(1_000_000_000, 1.0, 1, 1, 1), Some(100.0));
+        assert_eq!(cpu_percent_for_timebase(1, 0.0, 1, 1, 10), None);
+        assert_eq!(cpu_percent_for_timebase(1, 1.0, 1, 0, 10), None);
+        assert_eq!(cpu_percent_for_timebase(1, 1.0, 1, 1, 0), None);
+    }
+    #[test]
+    fn single_busy_core_has_plausible_process_cpu_percent() {
+        let mut child = Command::new("/bin/sh")
+            .args(["-c", "while :; do :; done"])
+            .spawn().unwrap();
+        let pid = child.id();
+        let result = (|| -> Result<f64, String> {
+            let mut sampler = Sampler::default();
+            sampler.sample()?;
+            thread::sleep(Duration::from_millis(900));
+            let snapshot = sampler.sample()?;
+            snapshot.processes.iter().find(|p|p.pid==pid).and_then(|p|p.cpu).ok_or("missing busy child CPU".into())
+        })();
+        let _ = child.kill();let _ = child.wait();
+        let cpu=result.unwrap();
+        let logical_cpus = unsafe { libc::sysconf(libc::_SC_NPROCESSORS_ONLN) } as f64;
+        let expected = 100.0 / logical_cpus;
+        println!("single busy core CPU: {cpu:.2}% of machine ({logical_cpus} logical cores, expected about {expected:.2}%)");
+        assert!((expected * 0.25..=expected * 1.5).contains(&cpu), "one busy core should be near {expected:.2}%, got {cpu:.2}%");
     }
     #[test]
     fn live_network_and_busy_cpu_are_measured() {

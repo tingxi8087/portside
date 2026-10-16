@@ -40,3 +40,9 @@ test('a later row matching a generated copy is skipped too',()=>{
  const result=plan([entry],[{...entry,command:'changed'},{...entry,name:'启动 副本',command:'changed'}]);
  assert.deepEqual(result.map(row=>row.duplicate),[false,true]);
 });
+test('current-directory shortcuts roundtrip with an empty directory',()=>{
+ const current={...entry,directory:''};
+ assert.deepEqual(parse(serialize([current])),[current]);
+ assert.equal(plan([current],[{...current,directory:'~'}])[0].duplicate,false);
+ assert.throws(()=>parse(file([{...current,directory:null}])));
+});
