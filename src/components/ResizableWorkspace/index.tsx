@@ -29,6 +29,18 @@ export default function ResizableWorkspace({children,sidebar,label,className=''}
     return()=>observer.disconnect();
   },[]);
 
+  useEffect(()=>{
+    const toggle=(event:globalThis.KeyboardEvent)=>{
+      if(!event.metaKey||event.ctrlKey||event.altKey||event.shiftKey||event.key.toLowerCase()!=='b')return;
+      // All four pages stay mounted; only the visible workspace handles the shortcut.
+      if(!root.current||root.current.closest('[hidden]')||Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).some(dialog=>!dialog.closest('[hidden]')))return;
+      event.preventDefault();event.stopPropagation();
+      if(!event.repeat)setCollapsed(value=>!value);
+    };
+    window.addEventListener('keydown',toggle,true);
+    return()=>window.removeEventListener('keydown',toggle,true);
+  },[]);
+
   const begin=(event:PointerEvent<HTMLDivElement>)=>{
     if(collapsed||event.button!==0)return;
     event.preventDefault();
@@ -55,7 +67,7 @@ export default function ResizableWorkspace({children,sidebar,label,className=''}
     <div className="resizable-workspace__main">{children}</div>
     <div className="resizable-workspace__rail">
       <div className="resizable-workspace__handle" role="separator" aria-label={`调整${label}宽度`} aria-controls={sideId} aria-orientation="vertical" aria-valuemin={collapsed?0:minWidth} aria-valuemax={maxWidth} aria-valuenow={collapsed?0:actualWidth} aria-disabled={collapsed} tabIndex={collapsed?-1:0} title="拖动调整宽度，双击恢复默认；方向键微调，Enter 收起" onPointerDown={begin} onPointerMove={move} onPointerUp={finish} onPointerCancel={event=>{if(drag.current)setWidth(drag.current.width);finish(event)}} onLostPointerCapture={()=>{drag.current=undefined;setResizing(false)}} onKeyDown={keyboard} onDoubleClick={()=>{setWidth(DEFAULT_WIDTH);setCollapsed(false)}}/>
-      <IconAction className="resizable-workspace__toggle" label={`${collapsed?'展开':'收起'}${label}`} aria-expanded={!collapsed} aria-controls={sideId} disabled={resizing} icon={collapsed?<IconChevronLeft size={13}/>:<IconChevronRight size={13}/>} onClick={()=>setCollapsed(value=>!value)}/>
+      <IconAction className="resizable-workspace__toggle" label={`${collapsed?'展开':'收起'}${label} ⌘B`} aria-expanded={!collapsed} aria-controls={sideId} disabled={resizing} icon={collapsed?<IconChevronLeft size={13}/>:<IconChevronRight size={13}/>} onClick={()=>setCollapsed(value=>!value)}/>
     </div>
     <div id={sideId} className="resizable-workspace__side" aria-hidden={collapsed||undefined} inert={collapsed}>
       <div className="resizable-workspace__side-content">{sidebar}</div>
