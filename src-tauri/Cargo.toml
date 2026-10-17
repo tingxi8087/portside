@@ -1,6 +1,6 @@
 [package]
 name = "portside"
-version = "0.1.1"
+version = "0.1.2"
 description = "A quiet workspace for your Mac"
 authors = ["Portside"]
 edition = "2021"
