@@ -58,6 +58,7 @@ pub struct Meter {
     system: sysinfo::System,
     networks: sysinfo::Networks,
     previous: Option<Instant>,
+    cached: Option<(Instant, Stats)>,
 }
 impl Default for Meter {
     fn default() -> Self {
@@ -65,12 +66,13 @@ impl Default for Meter {
             system: sysinfo::System::new(),
             networks: sysinfo::Networks::new(),
             previous: None,
+            cached: None,
         }
     }
 }
 #[derive(Default)]
 pub struct FloatingMeter(Mutex<Meter>);
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Stats {
     cpu: Option<f64>,
@@ -247,60 +249,76 @@ pub async fn floating_sample(app: tauri::AppHandle) -> Result<Stats, String> {
     if let Some(window) = app.get_webview_window("floating") {
         let _ = place(&window, false);
     }
+    tauri::async_runtime::spawn_blocking(move || sample_shared(&app))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+// One meter/cache for both windows. A second consumer must not reset CPU/network deltas.
+pub(crate) fn sample_shared(app: &tauri::AppHandle) -> Result<Stats, String> {
     let ports = app
         .state::<FloatingState>()
         .config
         .lock()
-        .unwrap()
+        .map_err(|e| e.to_string())?
         .metrics
         .iter()
         .any(|m| m == "ports");
-    let handle = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let state = handle.state::<FloatingMeter>();
-        let mut m = state.0.lock().map_err(|e| e.to_string())?;
-        m.system.refresh_cpu_usage();
-        m.system.refresh_memory();
-        m.networks.refresh(true);
-        let elapsed = m.previous.map(|at| at.elapsed().as_secs_f64());
-        m.previous = Some(Instant::now());
-        let total = m.system.total_memory();
-        let used = m.system.used_memory();
-        let rx: u64 = m
-            .networks
-            .iter()
-            .filter(|(name, _)| !name.starts_with("lo"))
-            .map(|(_, n)| n.received())
-            .sum();
-        let tx: u64 = m
-            .networks
-            .iter()
-            .filter(|(name, _)| !name.starts_with("lo"))
-            .map(|(_, n)| n.transmitted())
-            .sum();
-        Ok(Stats {
-            cpu: elapsed
-                .filter(|s| *s >= 0.2)
-                .map(|_| m.system.global_cpu_usage() as f64),
-            memory: if total > 0 {
-                Some(used as f64 / total as f64 * 100.0)
-            } else {
-                None
-            },
-            memory_used: used,
-            memory_total: total,
-            download: elapsed.map(|s| rx as f64 / s.max(0.001)),
-            upload: elapsed.map(|s| tx as f64 / s.max(0.001)),
-            ports: if ports {
-                crate::system::listener_count().ok()
-            } else {
-                None
-            },
-        })
-    })
-    .await
-    .map_err(|e| e.to_string())?
+    let state = app.state::<FloatingMeter>();
+    let mut m = state.0.lock().map_err(|e| e.to_string())?;
+    let stats = sample_meter(&mut m, ports);
+    drop(m);
+    let _ = app.emit_to("floating", "system-stats", &stats);
+    Ok(stats)
 }
+fn sample_meter(m: &mut Meter, ports: bool) -> Stats {
+    if let Some((at, stats)) = &mut m.cached {
+        if at.elapsed().as_secs_f64() < 1.0 {
+            if ports && stats.ports.is_none() {
+                stats.ports = crate::system::listener_count().ok();
+            }
+            return stats.clone();
+        }
+    }
+    m.system.refresh_cpu_usage();
+    m.system.refresh_memory();
+    m.networks.refresh(true);
+    let elapsed = m.previous.map(|at| at.elapsed().as_secs_f64());
+    let now = Instant::now();
+    m.previous = Some(now);
+    let total = m.system.total_memory();
+    let used = m.system.used_memory();
+    let rx: u64 = m
+        .networks
+        .iter()
+        .filter(|(name, _)| !name.starts_with("lo"))
+        .map(|(_, n)| n.received())
+        .sum();
+    let tx: u64 = m
+        .networks
+        .iter()
+        .filter(|(name, _)| !name.starts_with("lo"))
+        .map(|(_, n)| n.transmitted())
+        .sum();
+    let stats = Stats {
+        cpu: elapsed
+            .filter(|s| *s >= 0.2)
+            .map(|_| m.system.global_cpu_usage() as f64),
+        memory: (total > 0).then(|| used as f64 / total as f64 * 100.0),
+        memory_used: used,
+        memory_total: total,
+        download: elapsed.map(|s| rx as f64 / s.max(0.001)),
+        upload: elapsed.map(|s| tx as f64 / s.max(0.001)),
+        ports: if ports {
+            crate::system::listener_count().ok()
+        } else {
+            None
+        },
+    };
+    m.cached = Some((now, stats.clone()));
+    stats
+}
+
 #[tauri::command]
 pub fn floating_toggle_main(app: tauri::AppHandle) -> Result<(), String> {
     let main = app.get_webview_window("main").ok_or("主窗口不可用")?;
@@ -437,6 +455,25 @@ pub fn moved(window: &tauri::Window) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn shared_meter_reuses_samples_without_resetting_deltas() {
+        let mut meter = Meter::default();
+        let first = sample_meter(&mut meter, false);
+        assert!(first.memory_total > 0);
+        assert!(first.memory_used <= first.memory_total);
+        assert!(first.cpu.is_none());
+        let previous = meter.previous;
+        let second = sample_meter(&mut meter, false);
+        assert_eq!(meter.previous, previous);
+        assert_eq!(first.memory_used, second.memory_used);
+        assert_eq!(first.download, second.download);
+        std::thread::sleep(std::time::Duration::from_millis(1050));
+        let third = sample_meter(&mut meter, false);
+        assert!(meter.previous > previous);
+        assert!(third.cpu.is_some_and(|cpu| (0.0..=100.0).contains(&cpu)));
+        assert!(third.download.is_some_and(|speed| speed >= 0.0));
+        assert!(third.upload.is_some_and(|speed| speed >= 0.0));
+    }
     #[test]
     fn metric_limits() {
         let mut c = Config::default();

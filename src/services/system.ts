@@ -1,5 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 export { formatProcessMemory } from '@/utils/processMemory';
+import type { FloatingStats } from './floating';
 import type { Process } from '@/data/demo';
 export type SystemProcess = Omit<Process, 'cpu' | 'memory' | 'disk' | 'network'> & {
   cpu: number | null; /** Physical footprint in decimal MB. */ memory: number | null; disk: number | null; network: number | null;
@@ -7,7 +8,8 @@ export type SystemProcess = Omit<Process, 'cpu' | 'memory' | 'disk' | 'network'>
   identity: string; executable: string; started: string; metricsNote: string;
 };
 export type SystemPort = { id: string; port: number; pid: number; protocol: 'TCP' | 'UDP'; address: string; scope: 'local' | 'network' };
-export type SystemSnapshot = { processes: SystemProcess[]; ports: SystemPort[]; currentUser: string; warnings: string[] };
+export type SystemOverview = { stats: FloatingStats; info: {model: string|null; chip: string|null; cores: number; os: string|null}; uptime: number };
+export type SystemSnapshot = { processes: SystemProcess[]; ports: SystemPort[]; currentUser: string; warnings: string[]; overview?: SystemOverview|null };
 export const systemAvailable = isTauri();
 export const getSystemSnapshot = () => invoke<SystemSnapshot>('system_snapshot');
 export const terminateProcess = (process: SystemProcess, force = false) => invoke<{ exited: boolean; signal: string }>('terminate_process', { pid: process.pid, identity: process.identity, force });

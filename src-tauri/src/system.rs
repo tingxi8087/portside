@@ -47,6 +47,48 @@ pub struct Snapshot {
     pub ports: Vec<PortInfo>,
     pub current_user: String,
     pub warnings: Vec<String>,
+    pub overview: Option<Overview>,
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Overview {
+    stats: crate::floating::Stats,
+    info: MachineInfo,
+    uptime: u64,
+}
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct MachineInfo {
+    model: Option<String>,
+    chip: Option<String>,
+    cores: usize,
+    os: Option<String>,
+}
+fn machine_info() -> MachineInfo {
+    static INFO: std::sync::OnceLock<MachineInfo> = std::sync::OnceLock::new();
+    INFO.get_or_init(|| {
+        let mut system = sysinfo::System::new();
+        system.refresh_cpu_all();
+        let model = Command::new("/usr/sbin/sysctl")
+            .args(["-n", "hw.model"])
+            .output()
+            .ok()
+            .filter(|output| output.status.success())
+            .and_then(|output| String::from_utf8(output.stdout).ok())
+            .map(|model| model.trim().to_owned())
+            .filter(|model| !model.is_empty());
+        MachineInfo {
+            model,
+            chip: system
+                .cpus()
+                .first()
+                .map(|cpu| cpu.brand().to_owned())
+                .filter(|chip| !chip.is_empty()),
+            cores: system.cpus().len(),
+            os: sysinfo::System::os_version().map(|version| format!("macOS {version}")),
+        }
+    })
+    .clone()
 }
 #[derive(Default)]
 pub struct SystemMonitor {
@@ -394,17 +436,34 @@ impl Sampler {
             processes,
             ports,
             warnings,
+            overview: None,
         };
         self.cached = Some((now, snapshot.clone()));
         Ok(snapshot)
     }
 }
 #[tauri::command]
-pub async fn system_snapshot(state: tauri::State<'_, SystemMonitor>) -> Result<Snapshot, String> {
+pub async fn system_snapshot(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, SystemMonitor>,
+) -> Result<Snapshot, String> {
     let inner = state.inner.clone();
-    tauri::async_runtime::spawn_blocking(move || inner.lock().map_err(|_| "采集状态异常")?.sample())
-        .await
-        .map_err(|e| e.to_string())?
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut snapshot = inner.lock().map_err(|_| "采集状态异常")?.sample()?;
+        match crate::floating::sample_shared(&app) {
+            Ok(stats) => {
+                snapshot.overview = Some(Overview {
+                    stats,
+                    info: machine_info(),
+                    uptime: sysinfo::System::uptime(),
+                })
+            }
+            Err(error) => snapshot.warnings.push(format!("整机指标暂不可用：{error}")),
+        }
+        Ok(snapshot)
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 #[derive(Serialize, Debug)]
 #[serde(rename_all = "camelCase")]
@@ -458,6 +517,22 @@ pub async fn terminate_process(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn machine_info_reads_real_mac_metadata() {
+        let info = super::machine_info();
+        assert!(info.model.is_some());
+        assert!(info.chip.is_some());
+        assert!(info.cores > 0);
+        assert!(info
+            .os
+            .as_deref()
+            .is_some_and(|os| os.starts_with("macOS ")));
+        println!(
+            "model={:?}, chip={:?}, cores={}, os={:?}",
+            info.model, info.chip, info.cores, info.os
+        );
+    }
+
     use super::*;
     #[test]
     fn parses_ipv6_udp_and_deduplicates() {

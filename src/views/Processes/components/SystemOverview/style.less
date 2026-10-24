@@ -1,0 +1,15 @@
+.system-overview {
+  min-width: 0;
+  .system-usage { margin: 0 0 20px; }
+  .system-usage__heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; font-size: 12px; }
+  .system-usage__heading strong { font-size: 21px; font-weight: 550; }
+  .system-usage progress { display: block; appearance: none; width: 100%; height: 4px; border: 0; border-radius: 2px; overflow: hidden; background: var(--line); margin-top: 9px; }
+  .system-usage progress::-webkit-progress-bar { background: var(--line); }
+  .system-usage progress::-webkit-progress-value { background: var(--text); border-radius: 2px; }
+  .system-usage progress::-moz-progress-bar { background: var(--text); }
+  .system-usage p { font-size: 10px; margin: 7px 0 0; }
+  .system-overview__group { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 18px; }
+  .system-overview__group h3 { font-size: 11px; font-weight: 550; margin: 0 0 4px; }
+  .detail-row { border: 0; padding: 7px 0; }
+}
+.system-overview__status { font-size: 10px; line-height: 1.8; margin: 20px 0 0; }

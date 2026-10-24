@@ -13,11 +13,12 @@ export default function Floating(){
     document.documentElement.classList.add('floating-window');
     if(!isTauri())return;
     let active=true;let busy=false;
+    const statsSubscribe=listen<FloatingStats>('system-stats',event=>{if(active){setStats(event.payload);setError('')}});
     const subscribe=listen<FloatingConfig>('floating-config',event=>{if(active){enabled.current=event.payload.enabled;setConfig(event.payload)}});
     void invoke<FloatingConfig>('floating_state').then(value=>{if(active){enabled.current=value.enabled;setConfig(value)}}).catch(error=>setError(String(error)));
     const sample=async()=>{if(busy||!enabled.current)return;busy=true;try{const value=await invoke<FloatingStats>('floating_sample');if(active){setStats(value);setError('')}}catch(error){if(active){setStats(emptyStats);setError(String(error))}}finally{busy=false}};
     void sample();const timer=setInterval(()=>void sample(),2000);
-    return()=>{active=false;clearInterval(timer);void subscribe.then(stop=>stop())};
+    return()=>{active=false;clearInterval(timer);void subscribe.then(stop=>stop());void statsSubscribe.then(stop=>stop())};
   },[]);
   useEffect(()=>{
     const media=matchMedia('(prefers-color-scheme: dark)');const theme=()=>{document.documentElement.dataset.theme=config.theme==='dark'||config.theme==='system'&&media.matches?'dark':'light'};
