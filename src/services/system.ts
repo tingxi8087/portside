@@ -8,7 +8,7 @@ export type SystemProcess = Omit<Process, 'cpu' | 'memory' | 'disk' | 'network'>
   identity: string; executable: string; started: string; metricsNote: string;
 };
 export type SystemPort = { id: string; port: number; pid: number; protocol: 'TCP' | 'UDP'; address: string; scope: 'local' | 'network' };
-export type SystemOverview = { stats: FloatingStats; info: {model: string|null; chip: string|null; cores: number; os: string|null}; uptime: number };
+export type SystemOverview = { stats: FloatingStats; info: {model: string|null; chip: string|null; cores: number; os: string|null}; uptime: number; disk?: { total: number; used: number }|null };
 export type SystemSnapshot = { processes: SystemProcess[]; ports: SystemPort[]; currentUser: string; warnings: string[]; overview?: SystemOverview|null };
 export const systemAvailable = isTauri();
 export const getSystemSnapshot = () => invoke<SystemSnapshot>('system_snapshot');

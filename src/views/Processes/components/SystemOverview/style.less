@@ -10,6 +10,12 @@
   .system-usage p { font-size: 10px; margin: 7px 0 0; }
   .system-overview__group { border-top: 1px solid var(--line); padding-top: 14px; margin-top: 18px; }
   .system-overview__group h3 { font-size: 11px; font-weight: 550; margin: 0 0 4px; }
-  .detail-row { border: 0; padding: 7px 0; }
+  .system-overview__fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 18px; margin: 12px 0 0; }
+  .system-overview__field { min-width: 0; }
+  .system-overview__field dt { color: var(--muted); font-size: 10px; margin-bottom: 5px; }
+  .system-overview__field dd { margin: 0; font-size: 11px; line-height: 1.5; overflow-wrap: anywhere; }
+  .system-overview__field.is-wide { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+  .system-overview__field.is-wide dt { flex-shrink: 0; margin-bottom: 0; }
+  .system-overview__field.is-wide dd { text-align: right; }
 }
 .system-overview__status { font-size: 10px; line-height: 1.8; margin: 20px 0 0; }

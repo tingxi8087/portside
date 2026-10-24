@@ -55,6 +55,44 @@ pub struct Overview {
     stats: crate::floating::Stats,
     info: MachineInfo,
     uptime: u64,
+    disk: Option<DiskSpace>,
+}
+#[derive(Clone, Serialize, Debug, PartialEq)]
+#[serde(rename_all = "camelCase")]
+struct DiskSpace {
+    total: u64,
+    used: u64,
+}
+impl DiskSpace {
+    fn from_blocks(blocks: u64, available: u64, block_size: u64) -> Option<Self> {
+        let total = blocks.checked_mul(block_size)?;
+        if total == 0 || available > blocks { return None; }
+        Some(Self { total, used: total - available.checked_mul(block_size)? })
+    }
+}
+#[derive(Default)]
+struct DiskCache(Option<(Instant, Option<DiskSpace>)>);
+impl DiskCache {
+    fn sample(&mut self, now: Instant, read: impl FnOnce() -> Option<DiskSpace>) -> Option<DiskSpace> {
+        if let Some((at, value)) = &self.0 {
+            if now.duration_since(*at) < Duration::from_secs(30) { return value.clone(); }
+        }
+        let value = read();
+        self.0 = Some((now, value.clone()));
+        value
+    }
+}
+fn startup_disk_space() -> Option<DiskSpace> {
+    static CACHE: std::sync::OnceLock<Mutex<DiskCache>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(DiskCache::default())).lock().ok()?.sample(Instant::now(), || {
+        // Read the writable startup volume once; APFS volumes share container free space.
+        // Do not sum System/Data volumes or walk directory contents.
+        let path = std::ffi::CString::new("/System/Volumes/Data").ok()?;
+        let mut stat = std::mem::MaybeUninit::<libc::statfs>::uninit();
+        if unsafe { libc::statfs(path.as_ptr(), stat.as_mut_ptr()) } != 0 { return None; }
+        let stat = unsafe { stat.assume_init() };
+        DiskSpace::from_blocks(stat.f_blocks, stat.f_bavail, u64::from(stat.f_bsize))
+    })
 }
 #[derive(Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -456,6 +494,7 @@ pub async fn system_snapshot(
                     stats,
                     info: machine_info(),
                     uptime: sysinfo::System::uptime(),
+                    disk: startup_disk_space(),
                 })
             }
             Err(error) => snapshot.warnings.push(format!("整机指标暂不可用：{error}")),
@@ -517,6 +556,30 @@ pub async fn terminate_process(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn disk_space_uses_shared_available_capacity_and_validates_counters() {
+        assert_eq!(DiskSpace::from_blocks(100, 25, 4096), Some(DiskSpace { total: 409600, used: 307200 }));
+        assert!(DiskSpace::from_blocks(0, 0, 4096).is_none());
+        assert!(DiskSpace::from_blocks(100, 101, 4096).is_none());
+        assert!(DiskSpace::from_blocks(u64::MAX, 0, 4096).is_none());
+    }
+    #[test]
+    fn disk_cache_refreshes_every_thirty_seconds_including_failures() {
+        let mut cache = DiskCache::default();
+        let now = Instant::now();
+        let first = Some(DiskSpace { total: 100, used: 40 });
+        assert_eq!(cache.sample(now, || first.clone()), first);
+        assert_eq!(cache.sample(now + Duration::from_secs(29), || panic!("must reuse cache")), first);
+        assert_eq!(cache.sample(now + Duration::from_secs(30), || None), None);
+        assert_eq!(cache.sample(now + Duration::from_secs(31), || panic!("must cache failures")), None);
+        assert_eq!(cache.sample(now + Duration::from_secs(60), || first.clone()), first);
+    }
+    #[test]
+    fn startup_disk_reads_real_capacity() {
+        let space = startup_disk_space().expect("startup disk capacity");
+        assert!(space.total > 0 && space.used <= space.total);
+        println!("startup disk: {space:?}");
+    }
     #[test]
     fn machine_info_reads_real_mac_metadata() {
         let info = super::machine_info();
